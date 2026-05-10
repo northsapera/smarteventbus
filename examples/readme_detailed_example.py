@@ -1,8 +1,11 @@
 import threading
 import time
 
-from SmartEventBus import BusNetwork, Event, Handler, TyEv, UniqType, bus
+from SmartEventBus import DEBUG_MODE, BusNetwork, Event, Handler, TyEv, UniqType, bus
 from SmartEventBus import SubscribeType as SubType
+
+# Установка флага отладки
+DEBUG_MODE.set()
 
 # Запуск шины
 bus.start()
@@ -88,11 +91,11 @@ bus.publish(TyEv.START(kwargs={"num2": 3, "end_event": end_event}))
 
 # Активируется подписчик calc_handler, благодаря default_kwargs в хэндлере не падает с ошибкой от отсутствия num1
 # Публикация события got_result ("calc complete")
-# К этому событию привязаны 2 подписчика: print_result по NAME и print_txt по ID.
+# К этому событию привязаны 2 подписчика: print_result по NAME и print_txt по ID
 # Первым активируется print_txt, так как порядок NUMBER->ID->NAME (от более точного к менее)
 
-# Активируется подписчик print_txt, благодаря регистрации в Handler не падает от лишнего аргумента result
-# --- Вывод: {'result': 8}
+# Активируется подписчик print_txt, благодаря регистрации в Handler не падает от лишнего аргумента result. Благодаря файлу отладки добавляется техническая информация
+# --- Вывод: {'result': 8, '_func_name': 'calc', '_signal_name': 'calc complete'}
 # --- Вывод: No problems.
 
 # Активируется подписчик print_result

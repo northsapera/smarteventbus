@@ -10,7 +10,7 @@ py-modules = ["SmartEventBus"]
 
 [project]
 name = "SmartEventBus"
-version = "0.8.0"
+version = "0.8.1"
 authors = [
   { name="Matvey Aleksandrovich Grigoryev", email="dagrmaeiui@gmail.com" },
 ]

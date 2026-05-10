@@ -14,6 +14,7 @@
 #    limitations under the License.
 
 import asyncio
+import copy
 import hashlib
 import inspect
 import itertools
@@ -23,7 +24,6 @@ import threading
 import time
 import types
 import warnings
-from copy import deepcopy
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 from functools import total_ordering
@@ -37,6 +37,9 @@ from typing import (
     List,
     Optional,
     Self,
+    TypedDict,
+    cast,
+    get_args,
     get_origin,
     get_type_hints,
 )
@@ -46,14 +49,15 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    GetCoreSchemaHandler,
     PrivateAttr,
     ValidationError,
     model_validator,
 )
-from pydantic_core import PydanticUndefined
+from pydantic_core import PydanticUndefined, core_schema
 from typing_extensions import TypeAlias
 
-DEBUG_MODE = False
+DEBUG_MODE = threading.Event()
 """Флаг отладки"""
 STACKLEVEL = 3
 """Уровень стека для предупреждений"""
@@ -108,9 +112,26 @@ def check_flat(v: Dict[str, Any]) -> Dict[str, Any]:
     return v
 
 
-FlatDict: TypeAlias = Annotated[Dict[str, Any], AfterValidator(check_flat)]
-"""Тип плоский словарь"""
-FlatDict.__name__ = "FlatDict"
+class FlatDict(Dict[str, Any]):
+    """Тип плоский словарь"""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        check_flat(self)
+
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls, source_type: Any, handler: GetCoreSchemaHandler
+    ) -> core_schema.CoreSchema:
+        # Мы просто берем стандартную схему словаря и вешаем на нее валидатор
+        return core_schema.no_info_after_validator_function(
+            check_flat, handler(dict[str, Any])
+        )
+
+
+class SubscriptionStorage(TypedDict):
+    lists: dict[str | int, list[Callable]]
+    id_sets: dict[str | int, set[int]]
 
 
 # Enum-классы списков возможных значений
@@ -200,6 +221,10 @@ class NonValidEvent(EventError):
     pass
 
 
+class HandlerError(BusError):
+    pass
+
+
 # Именованные предупреждения
 class BusWarning(UserWarning):
     pass
@@ -279,7 +304,7 @@ class Event(EventParent, BaseModel):
 
     # Полезная нагрузка
     name: str
-    meta: FlatDict = Field(default_factory=dict, exclude=True)
+    meta: FlatDict = Field(default_factory=FlatDict, exclude=True)
     args: tuple[Any,] = Field(default_factory=tuple[Any,])
     kwargs: dict[str, Any] = Field(default_factory=dict[str, Any])
 
@@ -320,7 +345,7 @@ class Event(EventParent, BaseModel):
                 self.kwargs[key] = self.meta[key]
 
         # Отладочная информация, перед компиляцией необходимо заккоментировать
-        if DEBUG_MODE:
+        if DEBUG_MODE.is_set():
             try:
                 func_name = sys._getframe(EVENTSTACKLEVEL).f_code.co_name
 
@@ -383,8 +408,34 @@ class Event(EventParent, BaseModel):
         args.update(private_args)
         return args.items()
 
-    def __init_subclass__(cls, **kwargs):  # TODO: Разрешить сложное наследование
-        """Проверка на переопределение типов в подклассах"""
+    def __init_subclass__(
+        cls, **kwargs
+    ):  # TODO: Разрешить сложное наследование, добавить проверку на имя по умолчанию (опционально)
+        """Проверка на переопределение типов в подклассах
+
+        Raises:
+            EventError: Если первый родитель подкласса - не **Event**
+            EventError: Если переопределены типы
+
+        Examples:
+        Правильное объявление именнованного класса:
+
+        >>> class MyRightEvent(Event):
+        ...     name: str = Field(default="right")
+        ...     meta: FlatDict = Field(default_factory=lambda: FlatDict(meta1=True, meta2="check"))
+        >>> print(MyRightEvent)
+        <class '...MyRightEvent'>
+
+        Неправильное объявление:
+
+        >>> try: # doctest: +ELLIPSIS
+        ...     class MyWrongEvent(Event):
+        ...         name: str = Field(default="wrong")
+        ...         meta: dict = Field(default_factory=lambda: {"meta1": True, "meta2": "check"})
+        ... except Exception as e:
+        ...     print(f"Ошибка: {e}")
+        Ошибка: ...Types changing is rejected!
+        """
         super().__init_subclass__(**kwargs)
         parent = cls.__bases__[0]
 
@@ -393,9 +444,9 @@ class Event(EventParent, BaseModel):
                 f"For class {cls.__name__} class Event must be the first parent!"
             )
 
-        def get_base(t):
-            origin = get_origin(t)
-            return origin if origin is not None else t
+        def get_base(t: Any) -> Any:
+            all_types = (get_origin(t), get_args(t))
+            return all_types if all_types[0] is not None else t
 
         try:
             parent_hints = get_type_hints(parent)
@@ -413,11 +464,13 @@ class Event(EventParent, BaseModel):
 
                 if get_base(new_type) != get_base(old_type):
                     raise EventError(
-                        f"Field '{_field}' in class {cls.__name__} changes field type `{old_type}` to `{new_type}`. Types changing is rejected!"
+                        f"Field '{_field}' in class {cls.__name__} changes field type '{old_type.__name__}' `{old_type}` to '{new_type.__name__}' `{new_type}`. Types changing is rejected!"
                     )
 
     @staticmethod
-    def get_default_data(event_class: "TyEv" | type["Event"]) -> tuple[str, str, dict]:
+    def get_default_data(
+        event_class: Enum | type["Event"],  # FIXME: Перевести на любой Enum
+    ) -> tuple[str, str, FlatDict]:
         """Возвращает информацию о значимых для идентификации событий данных - тип (имя класса), имя события (сигнал), метаданные. На вход принимает класс типового или именнованного события, а не экземпляр. У переданного класса обязано быть задано имя события по умолчанию.
 
         Args:
@@ -429,98 +482,123 @@ class Event(EventParent, BaseModel):
 
         Returns:
             tuple[str, str, dict]: Кортеж тип-имя-метаданные.
+
+        Examples:
+
+            >>> print(Event.get_default_data(TyEv.START))
+            ('START_EVENT', 'START', {})
+
+            >>> print(issubclass(TyEv.START.value, Event))
+            True
+
+            >>> print(isinstance(TyEv.START.value, type))
+            True
+
+            >>> class MyEventClass(Event):
+            ...     name: str = "my name"
+            ...     meta: FlatDict = FlatDict(my=0)
+
+            >>> print(issubclass(MyEventClass, Event))
+            True
+
+            >>> print(isinstance(MyEventClass, type))
+            True
+
         """
-        if hasattr(event_class, "value"):
-            event_cls = event_class.value
+        if isinstance(event_class, Enum):
+            event_cls: type[Event] = event_class.value
         else:
-            event_cls = event_class
+            event_cls: type[Event] = event_class
 
         if not (isinstance(event_cls, type) and issubclass(event_cls, Event)):
             raise UnknownEventDataType(
                 f"Expected Event subclass, got {type(event_cls)}"
             )
 
-        event_type = event_cls.__name__
+        else:
+            event_type = event_cls.__name__
 
-        name_field = event_cls.model_fields.get("name")
-        if not name_field or name_field.default is PydanticUndefined:
-            raise EventError(f"Class {event_type} must have a default 'name'.")
+            name_field = event_cls.model_fields.get("name")
+            if not name_field or name_field.default is PydanticUndefined:
+                raise EventError(f"Class {event_type} must have a default 'name'.")
 
-        name = name_field.default
+            name = name_field.default
 
-        meta_field = event_cls.model_fields.get("meta")
-        meta = {}
-        if meta_field:
-            if meta_field.default is not PydanticUndefined:
-                meta = meta_field.default
-            elif meta_field.default_factory is not None:
-                meta = meta_field.default_factory()
+            meta_field = event_cls.model_fields.get("meta")
+            meta: FlatDict = FlatDict()
+            if meta_field:
+                if meta_field.default is not PydanticUndefined:
+                    meta = copy.copy(meta_field.default)
+                elif meta_field.default_factory is not None:
+                    meta = meta_field.default_factory()  # type: ignore
 
-        return (event_type, name, meta)
+            return (event_type, name, meta)
 
 
 # Типовые события
 class BUS_ERROR_EVENT(Event):
-    name: str = "ERROR"
-    meta: FlatDict = Field(default_factory=lambda: {"source": "bus", "type": "handler"})
-    kwargs: dict = Field(
+    name: str = Field(default="ERROR")
+    meta: FlatDict = Field(
+        default_factory=lambda: FlatDict(source="bus", type="handler")
+    )
+    kwargs: dict[str, Any] = Field(
         default_factory=lambda: {"txt": "Ошибка через шину. Ошибка в обработчике."}
     )
-    priority: int = 5
-    put_block: bool = False
+    priority: int = Field(default=5)
+    put_block: bool = Field(default=False)
 
 
 class LAUNCH_EVENT(Event):
-    name: str = "LAUNCH"
-    kwargs: dict = Field(default_factory=lambda: {"txt": "Запуск."})
-    priority: int = 25
+    name: str = Field(default="LAUNCH")
+    kwargs: dict[str, Any] = Field(default_factory=lambda: {"txt": "Запуск."})
+    priority: int = Field(default=25)
 
 
 class START_EVENT(Event):
-    name: str = "START"
-    kwargs: dict = Field(default_factory=lambda: {"txt": "Старт."})
-    priority: int = 25
+    name: str = Field(default="START")
+    kwargs: dict[str, Any] = Field(default_factory=lambda: {"txt": "Старт."})
+    priority: int = Field(default=25)
 
 
 class PAUSE_EVENT(Event):
-    name: str = "PAUSE"
-    kwargs: dict = Field(default_factory=lambda: {"txt": "Пауза."})
-    priority: int = 25
+    name: str = Field(default="PAUSE")
+    kwargs: dict[str, Any] = Field(default_factory=lambda: {"txt": "Пауза."})
+    priority: int = Field(default=25)
 
 
 class STOP_EVENT(Event):
-    name: str = "STOP"
-    kwargs: dict = Field(default_factory=lambda: {"txt": "Остановка."})
-    priority: int = 25
+    name: str = Field(default="STOP")
+    kwargs: dict[str, Any] = Field(default_factory=lambda: {"txt": "Остановка."})
+    priority: int = Field(default=25)
 
 
 class END_EVENT(Event):
-    name: str = "END"
-    kwargs: dict = Field(default_factory=lambda: {"txt": "Конец."})
-    priority: int = 200
+    name: str = Field(default="END")
+    kwargs: dict[str, Any] = Field(default_factory=lambda: {"txt": "Конец."})
+    priority: int = Field(default=200)
 
 
 class CANCEL_EVENT(Event):
-    name: str = "CANCEL"
-    kwargs: dict = Field(default_factory=lambda: {"txt": "Отмена."})
-    priority: int = 25
+    name: str = Field(default="CANCEL")
+    kwargs: dict[str, Any] = Field(default_factory=lambda: {"txt": "Отмена."})
+    priority: int = Field(default=25)
 
 
 class UPDATE_EVENT(Event):
-    name: str = "UPDATE"
-    kwargs: dict = Field(default_factory=lambda: {"txt": "Обновление."})
-    uniq_type: UniqType = UniqType.REPLACE
+    name: str = Field(default="UPDATE")
+    kwargs: dict[str, Any] = Field(default_factory=lambda: {"txt": "Обновление."})
+    uniq_type: UniqType = Field(default=UniqType.REPLACE)
 
 
 class LOG_EVENT(Event):
-    name: str = "LOG"
-    kwargs: dict = Field(default_factory=lambda: {"txt": "Логирование."})
+    name: str = Field(default="LOG")
+    kwargs: dict[str, Any] = Field(default_factory=lambda: {"txt": "Логирование."})
 
 
 class ERROR_EVENT(Event):
-    name: str = "ERROR"
-    kwargs: dict = Field(default_factory=lambda: {"txt": "Логирование."})
-    priority: int = 10
+    name: str = Field(default="ERROR")
+    kwargs: dict[str, Any] = Field(default_factory=lambda: {"txt": "Логирование."})
+    priority: int = Field(default=10)
 
 
 # Enum-список типовых событий
@@ -587,7 +665,7 @@ class Handler(BaseModel):
     force_kwargs: dict = Field(default_factory=dict)
 
     _has_kwargs: bool = PrivateAttr(default=False)
-    _mask_params: set = PrivateAttr(default=set)
+    _mask_params: set[str] = PrivateAttr(default_factory=set[str])
 
     _is_async: bool = PrivateAttr(default=False)
 
@@ -642,8 +720,33 @@ class Handler(BaseModel):
     def id(self) -> int:
         return self._id
 
-    def __init_subclass__(cls, **kwargs):  # TODO: Разрешить сложное наследование
-        """Проверка на переопределение типов в подклассах"""
+    def __init_subclass__(cls, **kwargs):
+        """Проверка на переопределение типов в подклассах
+
+        Raises:
+            EventError: Если первый родитель подкласса - не **Event**
+            EventError: Если переопределены типы
+
+        Examples:
+        >>> def default_f():
+        ...     pass
+
+        Правильное объявление именнованного класса:
+
+        >>> class MyRightHandler(Handler):
+        ...     func: Callable = Field(default=default_f)
+        >>> print(MyRightHandler) # doctest: +ELLIPSIS
+        <class '...MyRightHandler'>
+
+        Неправильное объявление:
+
+        >>> try: # doctest: +ELLIPSIS
+        ...     class MyWrongHandler(Handler):
+        ...         func: object = Field(default=default_f)
+        ... except Exception as e:
+        ...     print(f"Ошибка: {e}")
+        Ошибка: ...Types changing is rejected!
+        """
         super().__init_subclass__(**kwargs)
         parent = cls.__bases__[0]
 
@@ -652,9 +755,9 @@ class Handler(BaseModel):
                 f"For class {cls.__name__} class Handler must be the first parent!"
             )
 
-        def get_base(t):
-            origin = get_origin(t)
-            return origin if origin is not None else t
+        def get_base(t: Any) -> Any:
+            all_types = (get_origin(t), get_args(t))
+            return all_types if all_types[0] is not None else t
 
         try:
             parent_hints = get_type_hints(parent)
@@ -671,8 +774,8 @@ class Handler(BaseModel):
                 old_type = parent_hints[_field]
 
                 if get_base(new_type) != get_base(old_type):
-                    raise EventError(
-                        f"Field '{_field}' in class {cls.__name__} changes field type `{old_type}` to `{new_type}`. Types changing is rejected!"
+                    raise HandlerError(
+                        f"Field '{_field}' in class {cls.__name__} changes field type '{old_type.__name__}' `{old_type}` to '{new_type.__name__}' `{new_type}`. Types changing is rejected!"
                     )
 
     def duble(self, **update_kwargs) -> Self:
@@ -713,7 +816,9 @@ class Handler(BaseModel):
         False
         """
         duble_handler = self.model_copy(deep=False, update=update_kwargs)
-        duble_handler.default_kwargs = self.smartcopy(duble_handler.default_kwargs)
+        duble_handler.default_kwargs = dict(
+            self.smartcopy(duble_handler.default_kwargs)
+        )
 
         duble_handler.refresh()
 
@@ -743,17 +848,17 @@ class Handler(BaseModel):
 
         else:
             try:
-                return deepcopy(data)
+                return copy.deepcopy(data)
             except TypeError:
                 return data
 
     @staticmethod
     def get_handler_name(h: Callable | "Handler") -> str:
         while isinstance(h, Handler) or (hasattr(h, "func") and hasattr(h, "args")):
-            h = h.func
+            h = getattr(h, "func")
 
         if hasattr(h, "__self__"):
-            class_name = h.__self__.__class__.__name__
+            class_name = getattr(h, "__self__").__class__.__name__
             return f"{class_name}.{h.__name__}"
 
         if hasattr(h, "__class__") and not isinstance(
@@ -894,7 +999,7 @@ class UniquePriorityQueue:
 
                 if not event.is_valid:
                     self._inspection.nonvalid_events_gotten()
-                    if DEBUG_MODE:
+                    if DEBUG_MODE.is_set():
                         warnings.warn(
                             f"Event(name='{event.name}', id={event.id}, num={event.num}) was gotten as nonvalid. Total nonvalid events amount: {int(self._inspection.nonvalid_events_gotten)}",
                             NonValidEventWarning,
@@ -918,7 +1023,7 @@ class UniquePriorityQueue:
         search_type: SearchType,
         event_name: str = "",
         event_meta: dict | None = None,
-        event_type: TyEv | type[Event] = Event,
+        event_type: TyEv | type[Event] = Event,  # FIXME: Перевести на любой Enum
         event_num: int = -1,
     ) -> list[Event]:
         """Ищет событие (события) в очереди. Возвращает список найденных событий в порядке приоритета или пустой список, если событий не найдено.
@@ -1012,7 +1117,7 @@ class UniquePriorityQueue:
             elif search_type == SearchType.NUMBER:
                 for id_group in self._ids.values():
                     if event_num in id_group:
-                        searched_events.append(id_group.get(event_num))
+                        searched_events.append(id_group[event_num])
                         break
 
             else:
@@ -1151,9 +1256,7 @@ class EventBus:
 
     def __init__(self, maxsize: int = 0):
         self._queue = UniquePriorityQueue(maxsize=maxsize)
-        self._subscribers: dict[
-            SubscribeType, dict[str, dict[str, list[Callable] | set[int]]]
-        ] = {
+        self._subscribers: dict[SubscribeType, SubscriptionStorage] = {
             SubscribeType.NAME: {"lists": {}, "id_sets": {}},
             SubscribeType.ID: {"lists": {}, "id_sets": {}},
             SubscribeType.NUMBER: {"lists": {}, "id_sets": {}},
@@ -1166,7 +1269,11 @@ class EventBus:
 
     def subscribe(
         self,
-        event_data: str | Event | TyEv | type[Event] | int,
+        event_data: str
+        | Event
+        | TyEv
+        | type[Event]
+        | int,  # FIXME: Перевести на любой Enum
         handlers: Callable | Handler | list[Callable | Handler],
         subscribe_type: SubscribeType = SubscribeType.NAME,
     ):
@@ -1308,7 +1415,7 @@ class EventBus:
             except KeyError:
                 raise UnknownSubscribeType("Unknown subscription type received!")
 
-        elif isinstance(event_data, (TyEv, type)):
+        elif isinstance(event_data, (TyEv, type)):  # FIXME
             default_data = Event.get_default_data(event_data)
             e_type, name, meta = default_data
 
@@ -1333,6 +1440,7 @@ class EventBus:
             subscribers_list = self._subscribers[subscribe_type]["lists"].setdefault(
                 signal, []
             )
+
             subscribers_id_set = self._subscribers[subscribe_type][
                 "id_sets"
             ].setdefault(signal, set())
