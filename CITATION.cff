@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+authors:
+  - family-names: "Grigoryev"
+    given-names: "Matvey Aleksandrovich"
+    orcid: "https://orcid.org/0009-0007-3364-6077"
+title: "Smart Event Bus: Event bus with integrated Event Manager"
+version: 0.8.0
+date-released: 2026-05-10
+url: "https://github.com/northsapera/smarteventbus"

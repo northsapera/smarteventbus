@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.setuptools]
+py-modules = ["SmartEventBus"]
+
+[project]
+name = "SmartEventBus"
+version = "0.8.0"
+authors = [
+  { name="Matvey Aleksandrovich Grigoryev", email="dagrmaeiui@gmail.com" },
+]
+description = "A lightweight event bus with integrated event manager for Python"
+readme = "README.md"
+license = {text = "Apache-2.0"}
+requires-python = ">=3.8"
+dependencies = [
+    "pydantic",
+]
+
+[project.urls]
+Homepage = "https://github.com/northsapera/smarteventbus"
+Repository = "https://github.com/northsapera/smarteventbus.git"
