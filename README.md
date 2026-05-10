@@ -213,3 +213,6 @@ bus.stop()
 
 ## Цитирование
 Если вы используете **Smart Event Bus** в своих научных работах, пожалуйста, используйте файл [CITATION.cff](./CITATION.cff).
+
+## Обсуждения
+**Остались вопросы или зародилась идея?** Добро пожаловать в [Обсуждения](https://github.com/northsapera/smarteventbus/discussions/1)!
