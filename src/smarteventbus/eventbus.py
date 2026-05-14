@@ -72,6 +72,18 @@ from .core.exceptions import (
     UnknownUniqType,
     WaitTimeoutError,
 )
+from .core.warnings import (
+    BusWarning,
+    EventWarning,
+    HandlerWarning,
+    NonValidEventWarning,
+    PuttingFailedWarning,
+    QueueFullWarning,
+    QueueWarning,
+    SubscribeTypeWarning,
+    UnpredictableBusWarning,
+    WaitTimeoutWarning,
+)
 
 DEBUG_MODE = threading.Event()
 """Флаг отладки"""
@@ -186,47 +198,6 @@ class SubscribeType(str, Enum):
     """Подписка на имя и метаданные (полное совпадение)."""
     NAME = "NAME"
     """Подписка на имя события (сигнал)."""
-
-
-# Именованные предупреждения
-class BusWarning(UserWarning):
-    pass
-
-
-class UnpredictableBusWarning(BusWarning):
-    pass
-
-
-class SubscribeTypeWarning(BusWarning):
-    pass
-
-
-class QueueWarning(BusWarning):
-    pass
-
-
-class PuttingFailedWarning(QueueWarning):
-    pass
-
-
-class WaitTimeoutWarning(QueueWarning):
-    pass
-
-
-class QueueFullWarning(QueueWarning):
-    pass
-
-
-class EventWarning(BusWarning):
-    pass
-
-
-class NonValidEventWarning(EventWarning):
-    pass
-
-
-class HandlerWarning(BusWarning):
-    pass
 
 
 warnings.filterwarnings("ignore", category=NonValidEventWarning)
