@@ -62,7 +62,7 @@ pip install -e .
 ```python
 import time
 
-from SmartEventBus import Event, Handler, bus
+from smarteventbus import Event, Handler, bus
 
 bus.start()
 
@@ -94,11 +94,11 @@ bus.stop()
 import threading
 import time
 
-from SmartEventBus import DEBUG_MODE, BusNetwork, Event, Handler, TyEv, UniqType, bus
-from SmartEventBus import SubscribeType as SubType
+from smarteventbus import BusNetwork, Event, Handler, TyEv, UniqType, bus, debug_mode
+from smarteventbus import SubscribeType as SubType
 
 # Установка флага отладки
-DEBUG_MODE.set()
+debug_mode.set()
 
 # Запуск шины
 bus.start()
