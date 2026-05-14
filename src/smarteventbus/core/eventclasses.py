@@ -3,7 +3,6 @@ import sys
 import warnings
 from enum import Enum
 from functools import total_ordering
-from threading import Event as ThreadEvent
 from typing import (
     Any,
     Iterable,
@@ -22,6 +21,7 @@ from pydantic import (
 from pydantic_core import PydanticUndefined
 
 from ..utils.flatten import FlatDict
+from .config import DEBUG_MODE, EVENTSTACKLEVEL, STACKLEVEL
 from .eventparent import EventParent
 from .exceptions import (
     EventError,
@@ -31,11 +31,6 @@ from .exceptions import (
 )
 from .logictypes import ExitType, UniqType
 from .warnings import EventWarning, UnpredictableBusWarning
-
-DEBUG_MODE = ThreadEvent()
-"""Флаг отладки"""
-EVENTSTACKLEVEL = 4
-"""Уровень стека для дебаг-данных события"""
 
 
 # События

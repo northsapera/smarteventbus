@@ -52,8 +52,9 @@ from pydantic import (
 )
 from pydantic_core import PydanticUndefined
 
+from .core.config import DEBUG_MODE, STACKLEVEL
 from .core.easycounter import EasyCounter
-from .core.eventclasses import DEBUG_MODE, Event, TyEv
+from .core.eventclasses import Event, TyEv
 from .core.eventparent import EventParent
 from .core.exceptions import (
     BusError,
@@ -86,8 +87,6 @@ from .core.warnings import (
 )
 from .utils.flatten import FlatDict, check_flat
 
-STACKLEVEL = 3
-"""Уровень стека для предупреждений"""
 warnings.filterwarnings("ignore", category=NonValidEventWarning)
 
 
