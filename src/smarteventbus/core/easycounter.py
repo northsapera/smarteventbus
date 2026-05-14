@@ -12,6 +12,8 @@
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
 
+"""Thread-safe counter for event queue self-inspection."""
+
 from threading import Lock
 
 

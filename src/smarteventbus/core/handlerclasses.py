@@ -12,6 +12,8 @@
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
 
+"""Handler classes for Smart Event Bus."""
+
 import copy
 import inspect
 import types

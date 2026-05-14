@@ -12,6 +12,9 @@
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
 
+"""Custom exceptions for Smart Event Bus."""
+
+
 # Именованные ошибки
 class BusError(Exception):
     pass

@@ -12,6 +12,8 @@
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
 
+"""Utils for custom flat types: function check_flat, class FlatDict."""
+
 from typing import Any, Dict
 
 from pydantic import GetCoreSchemaHandler

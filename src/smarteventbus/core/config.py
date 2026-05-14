@@ -12,6 +12,8 @@
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
 
+"""Global config for Smart Event Bus."""
+
 from threading import Event as ThreadEvent
 
 debug_mode = ThreadEvent()
