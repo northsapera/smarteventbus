@@ -2,19 +2,19 @@
 requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools.package-dir]
-"" = "src"
-
 [tool.setuptools]
-py-modules = ["SmartEventBus"]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [project]
-name = "SmartEventBus"
+name = "smarteventbus"
 version = "0.8.1"
 authors = [
   { name="Matvey Aleksandrovich Grigoryev", email="dagrmaeiui@gmail.com" },
 ]
-description = "A lightweight event bus with integrated event manager for Python"
+description = "A lightweight event bus with integrated event manager for Python."
 readme = "README.md"
 license = {text = "Apache-2.0"}
 requires-python = ">=3.8"
