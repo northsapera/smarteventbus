@@ -35,7 +35,6 @@ from typing import (
     List,
     Optional,
     Self,
-    TypedDict,
     cast,
     get_args,
     get_origin,
@@ -71,6 +70,7 @@ from .core.exceptions import (
     WaitTimeoutError,
 )
 from .core.logictypes import ExitType, SearchType, SubscribeType, UniqType
+from .core.subscriptionlogic import SubscriptionStorage
 from .core.warnings import (
     BusWarning,
     EventWarning,
@@ -94,11 +94,6 @@ EVENTSTACKLEVEL = 4
 
 
 # Классы и типы:
-
-
-class SubscriptionStorage(TypedDict):
-    lists: dict[str | int, list[Callable]]
-    id_sets: dict[str | int, set[int]]
 
 
 warnings.filterwarnings("ignore", category=NonValidEventWarning)
