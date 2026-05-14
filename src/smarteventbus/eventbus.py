@@ -57,6 +57,22 @@ from pydantic import (
 from pydantic_core import PydanticUndefined, core_schema
 from typing_extensions import TypeAlias
 
+from .core.exceptions import (
+    BusError,
+    BusTypeError,
+    EventError,
+    HandlerError,
+    NonValidEvent,
+    TypesInconsistency,
+    UnknownEventDataType,
+    UnknownEventType,
+    UnknownExitType,
+    UnknownSearchType,
+    UnknownSubscribeType,
+    UnknownUniqType,
+    WaitTimeoutError,
+)
+
 DEBUG_MODE = threading.Event()
 """Флаг отладки"""
 STACKLEVEL = 3
@@ -170,59 +186,6 @@ class SubscribeType(str, Enum):
     """Подписка на имя и метаданные (полное совпадение)."""
     NAME = "NAME"
     """Подписка на имя события (сигнал)."""
-
-
-# Именованные ошибки
-class BusError(Exception):
-    pass
-
-
-class WaitTimeoutError(BusError):
-    pass
-
-
-class BusTypeError(BusError):
-    pass
-
-
-class UnknownUniqType(BusTypeError):
-    pass
-
-
-class UnknownExitType(BusTypeError):
-    pass
-
-
-class UnknownSearchType(BusTypeError):
-    pass
-
-
-class UnknownSubscribeType(BusTypeError):
-    pass
-
-
-class UnknownEventDataType(BusTypeError):
-    pass
-
-
-class UnknownEventType(BusTypeError):
-    pass
-
-
-class TypesInconsistency(BusTypeError):
-    pass
-
-
-class EventError(BusError):
-    pass
-
-
-class NonValidEvent(EventError):
-    pass
-
-
-class HandlerError(BusError):
-    pass
 
 
 # Именованные предупреждения
