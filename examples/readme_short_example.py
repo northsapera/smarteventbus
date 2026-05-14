@@ -1,6 +1,6 @@
 import time
 
-from SmartEventBus import Event, Handler, bus
+from smarteventbus import Event, Handler, bus
 
 bus.start()
 
