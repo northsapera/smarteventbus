@@ -35,7 +35,7 @@ from pydantic import (
 from pydantic_core import PydanticUndefined
 
 from ..utils.flatten import FlatDict
-from .config import DEBUG_MODE, EVENTSTACKLEVEL, STACKLEVEL
+from .config import EVENTSTACKLEVEL, STACKLEVEL, debug_mode
 from .eventparent import EventParent
 from .exceptions import (
     EventError,
@@ -110,7 +110,7 @@ class Event(EventParent, BaseModel):
                 self.kwargs[key] = self.meta[key]
 
         # Отладочная информация, перед компиляцией необходимо заккоментировать
-        if DEBUG_MODE.is_set():
+        if debug_mode.is_set():
             try:
                 func_name = sys._getframe(EVENTSTACKLEVEL).f_code.co_name
 

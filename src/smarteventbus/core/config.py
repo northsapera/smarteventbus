@@ -14,7 +14,7 @@
 
 from threading import Event as ThreadEvent
 
-DEBUG_MODE = ThreadEvent()
+debug_mode = ThreadEvent()
 """Флаг отладки"""
 EVENTSTACKLEVEL = 4
 """Уровень стека для дебаг-данных события"""

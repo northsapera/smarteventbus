@@ -17,7 +17,7 @@ import threading
 import warnings
 from dataclasses import dataclass, field
 
-from .config import DEBUG_MODE, STACKLEVEL
+from .config import STACKLEVEL, debug_mode
 from .easycounter import EasyCounter
 from .eventclasses import Event, TyEv
 from .exceptions import (
@@ -161,7 +161,7 @@ class UniquePriorityQueue:
 
                 if not event.is_valid:
                     self._inspection.nonvalid_events_gotten()
-                    if DEBUG_MODE.is_set():
+                    if debug_mode.is_set():
                         warnings.warn(
                             f"Event(name='{event.name}', id={event.id}, num={event.num}) was gotten as nonvalid. Total nonvalid events amount: {int(self._inspection.nonvalid_events_gotten)}",
                             NonValidEventWarning,
