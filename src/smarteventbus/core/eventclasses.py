@@ -235,7 +235,7 @@ class Event(EventParent, BaseModel):
 
     @staticmethod
     def get_default_data(
-        event_class: Enum | type["Event"],  # FIXME: Перевести на любой Enum
+        event_class: Enum | type["Event"],  # NOTE: Перевести на любой Enum (сделано?)
     ) -> tuple[str, str, FlatDict]:
         """Возвращает информацию о значимых для идентификации событий данных - тип (имя класса), имя события (сигнал), метаданные. На вход принимает класс типового или именнованного события, а не экземпляр. У переданного класса обязано быть задано имя события по умолчанию.
 

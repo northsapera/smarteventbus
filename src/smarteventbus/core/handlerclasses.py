@@ -124,10 +124,22 @@ class Handler(BaseModel):
     def _run(self, *args, **kwargs) -> Any:
         if self._is_async:
             return self._run_async(*args, **kwargs)
-        return self.func(*args, **kwargs)
+        try:
+            return self.func(*args, **kwargs)
+        except TypeError as e:
+            e.add_note(
+                "If func got multiple values for argument, сheck for mixing positional and named arguments in handler calling."
+            )
+            raise
 
     async def _run_async(self, *args, **kwargs) -> Any:
-        return await self.func(*args, **kwargs)
+        try:
+            return await self.func(*args, **kwargs)
+        except TypeError as e:
+            e.add_note(
+                "If func got multiple values for argument, сheck for mixing positional and named arguments in handler calling."
+            )
+            raise
 
     @property
     def id(self) -> int:
@@ -283,3 +295,11 @@ class Handler(BaseModel):
             return "<lambda>"
 
         return getattr(h, "__name__", str(h))
+
+    def __hash__(self) -> int:
+        return hash(self._id)
+
+    def __eq__(self, other) -> bool:
+        if not isinstance(other, Handler):
+            return False
+        return self._id == other._id
