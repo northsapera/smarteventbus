@@ -20,13 +20,15 @@ __version__ = "0.9.0"
 __author__ = "Matvey Grigoryev"
 
 from .core.config import debug_mode
-from .core.eventclasses import Event, TyEv
-from .core.exceptions import (
+from .core.custexceptions import (
     BusError,
     BusTypeError,
     EventError,
     HandlerError,
     NonValidEvent,
+    QueueEmpty,
+    QueueError,
+    QueueFull,
     TypesInconsistency,
     UnknownEventDataType,
     UnknownEventType,
@@ -36,9 +38,7 @@ from .core.exceptions import (
     UnknownUniqType,
     WaitTimeoutError,
 )
-from .core.handlerclasses import Handler
-from .core.logictypes import ExitType, SearchType, SubscribeType, UniqType
-from .core.warnings import (
+from .core.custwarnings import (
     BusWarning,
     EventWarning,
     HandlerWarning,
@@ -50,6 +50,9 @@ from .core.warnings import (
     UnpredictableBusWarning,
     WaitTimeoutWarning,
 )
+from .core.eventclasses import Event, TyEv
+from .core.handlerclasses import Handler
+from .core.logictypes import ExitType, SearchType, SubscribeType, UniqType
 from .eventbus import BusNetwork, EventBus, bus
 from .utils.flatten import FlatDict, check_flat
 
@@ -77,6 +80,9 @@ __all__ = [
     "EventError",
     "HandlerError",
     "NonValidEvent",
+    "QueueEmpty",
+    "QueueError",
+    "QueueFull",
     "TypesInconsistency",
     "UnknownEventDataType",
     "UnknownEventType",

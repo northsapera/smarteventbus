@@ -38,15 +38,15 @@ from pydantic_core import PydanticUndefined
 
 from ..utils.flatten import FlatDict
 from .config import EVENTSTACKLEVEL, STACKLEVEL, debug_mode
-from .eventparent import EventParent
-from .exceptions import (
+from .custexceptions import (
     EventError,
     UnknownEventDataType,
     UnknownExitType,
     UnknownUniqType,
 )
+from .custwarnings import EventWarning, UnpredictableBusWarning
+from .eventparent import EventParent
 from .logictypes import ExitType, UniqType
-from .warnings import EventWarning, UnpredictableBusWarning
 
 
 # События
@@ -81,11 +81,10 @@ class Event(EventParent, BaseModel):
 
     uniq_type: UniqType = Field(default=UniqType.NONE)
     uniq_counter: int = Field(default=1)
-    wait_timeout: float | None = Field(default=10)
     wait_timeout_exit: ExitType = Field(default=ExitType.REJECT)
 
-    put_block: bool = Field(default=True)
-    put_timeout: float | None = Field(default=None)
+    block: bool = Field(default=True)
+    timeout: float | None = Field(default=None)
 
     def model_post_init(self, context: Any) -> None:
         super().model_post_init(context)

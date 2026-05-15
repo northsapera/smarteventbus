@@ -20,7 +20,19 @@ class BusError(Exception):
     pass
 
 
-class WaitTimeoutError(BusError):
+class QueueError(BusError):
+    pass
+
+
+class QueueFull(QueueError):
+    pass
+
+
+class QueueEmpty(QueueError):
+    pass
+
+
+class WaitTimeoutError(QueueError):
     pass
 
 

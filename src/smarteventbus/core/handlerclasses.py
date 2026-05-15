@@ -34,8 +34,8 @@ from pydantic import (
     PrivateAttr,
 )
 
-from .exceptions import HandlerError
-from .warnings import UnpredictableBusWarning
+from .custexceptions import HandlerError
+from .custwarnings import UnpredictableBusWarning
 
 
 # Класс подписчиков (хэндлеров)

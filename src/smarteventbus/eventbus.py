@@ -23,23 +23,24 @@ import warnings
 from typing import Callable
 
 from .core.config import STACKLEVEL
-from .core.eventclasses import Event, TyEv
-from .core.eventqueue import UniquePriorityQueue
-from .core.exceptions import (
+from .core.custexceptions import (
     TypesInconsistency,
     UnknownEventDataType,
     UnknownSubscribeType,
 )
-from .core.handlerclasses import Handler
-from .core.logictypes import SubscribeType, UniqType
-from .core.subscriptionlogic import SubscriptionStorage
-from .core.warnings import (
+from .core.custwarnings import (
     HandlerWarning,
     NonValidEventWarning,
     QueueFullWarning,
     SubscribeTypeWarning,
     UnpredictableBusWarning,
 )
+from .core.eventclasses import Event, TyEv
+from .core.eventorchestrator import QueueOrchestrator
+from .core.eventqueue import UniquePriorityQueue
+from .core.handlerclasses import Handler
+from .core.logictypes import SubscribeType, UniqType
+from .core.subscriptionlogic import SubscriptionStorage
 
 warnings.filterwarnings("ignore", category=NonValidEventWarning)
 
@@ -49,16 +50,21 @@ class EventBus:
     """Шина событий."""
 
     def __init__(self, maxsize: int = 0):
-        self._queue = UniquePriorityQueue(maxsize=maxsize)
+        self._lock = threading.Lock()
+
+        self._orch = QueueOrchestrator()
+        self._queue = UniquePriorityQueue()
+
         self._subscribers: dict[SubscribeType, SubscriptionStorage] = {
             SubscribeType.NAME: {"lists": {}, "id_sets": {}},
             SubscribeType.ID: {"lists": {}, "id_sets": {}},
             SubscribeType.NUMBER: {"lists": {}, "id_sets": {}},
         }
-        self._lock = threading.Lock()
+
         self._stop_flag = threading.Event()
         self._pause_flag = threading.Event()
         self._on_air_flag = threading.Event()
+
         self._thread = None
 
     def subscribe(
@@ -309,7 +315,7 @@ class EventBus:
         while not self._stop_flag.is_set():
             if not self._pause_flag.is_set():
                 try:
-                    event: Event = self._queue.get(timeout=0.1)
+                    event: Event = self._queue.get()
                     with self._lock:
                         handlers_to_call = []
 
@@ -355,13 +361,13 @@ class EventBus:
                                     stacklevel=STACKLEVEL,
                                 )
 
-                    self._queue.task_done()
+                    # self._queue.task_done()
 
                 except queue.Empty:
                     continue
 
                 except Exception:
-                    self._queue.task_done()
+                    # self._queue.task_done()
 
                     raise
 
@@ -403,7 +409,7 @@ class EventBus:
 
             report = {
                 "subscribers": subscribers,
-                "queue_info": self._queue.info(),
+                "queue_info": self._queue.info,
             }
         return report
 
