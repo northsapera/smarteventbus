@@ -20,10 +20,14 @@ import queue
 import threading
 import time
 import warnings
+from enum import Enum
 from typing import Callable
 
 from .core.config import STACKLEVEL
 from .core.custexceptions import (
+    QueueEmpty,
+    QueueFull,
+    QueueReset,
     TypesInconsistency,
     UnknownEventDataType,
     UnknownSubscribeType,
@@ -40,7 +44,7 @@ from .core.eventorchestrator import QueueOrchestrator
 from .core.eventqueue import UniquePriorityQueue
 from .core.handlerclasses import Handler
 from .core.logictypes import SubscribeType, UniqType
-from .core.subscriptionlogic import SubscriptionStorage
+from .core.subscriptionorchestrator import SubscriptionOrchestrator
 
 warnings.filterwarnings("ignore", category=NonValidEventWarning)
 
@@ -50,16 +54,8 @@ class EventBus:
     """Шина событий."""
 
     def __init__(self, maxsize: int = 0):
-        self._lock = threading.Lock()
-
-        self._orch = QueueOrchestrator()
-        self._queue = UniquePriorityQueue()
-
-        self._subscribers: dict[SubscribeType, SubscriptionStorage] = {
-            SubscribeType.NAME: {"lists": {}, "id_sets": {}},
-            SubscribeType.ID: {"lists": {}, "id_sets": {}},
-            SubscribeType.NUMBER: {"lists": {}, "id_sets": {}},
-        }
+        self._queueorch = QueueOrchestrator()
+        self._suborch = SubscriptionOrchestrator()
 
         self._stop_flag = threading.Event()
         self._pause_flag = threading.Event()
@@ -72,8 +68,9 @@ class EventBus:
         event_data: str
         | Event
         | TyEv
+        | Enum
         | type[Event]
-        | int,  # FIXME: Перевести на любой Enum
+        | int,  # NOTE: Перевести на любой Enum (сделано?)
         handlers: Callable | Handler | list[Callable | Handler],
         subscribe_type: SubscribeType = SubscribeType.NAME,
     ):
@@ -171,91 +168,7 @@ class EventBus:
             >>> bus.clean_queue()
             >>> bus.stop()
         """
-        signal = None
-        handlers = [handlers] if isinstance(handlers, Callable) else handlers
-
-        if isinstance(event_data, (str, int)):
-            if subscribe_type == SubscribeType.NAME:
-                if isinstance(event_data, int):
-                    warnings.warn(
-                        f"Event data '{event_data}' type is `int`. Event data must be `str` type for NAME logic! Event data transformed.",
-                        SubscribeTypeWarning,
-                        stacklevel=STACKLEVEL,
-                    )
-
-                signal = str(event_data)
-
-            elif subscribe_type in {SubscribeType.ID, SubscribeType.NUMBER}:
-                if isinstance(event_data, str):
-                    warnings.warn(
-                        f"Event data '{event_data}' type is `str`. Event data must be `int` type for ID and NUMBER logic! Event data transformed.",
-                        SubscribeTypeWarning,
-                        stacklevel=STACKLEVEL,
-                    )
-
-                try:
-                    signal = int(event_data)
-
-                except ValueError:
-                    raise TypesInconsistency(
-                        f"Cannot convert string '{event_data}' to 128-bit int for {subscribe_type.name}."
-                    )
-
-            else:
-                raise UnknownSubscribeType("Unknown subscription type received!")
-
-        elif isinstance(event_data, Event):
-            try:
-                mapping = {
-                    SubscribeType.NAME: event_data.name,
-                    SubscribeType.ID: event_data.id,
-                    SubscribeType.NUMBER: event_data.num,
-                }
-                signal = mapping[subscribe_type]
-            except KeyError:
-                raise UnknownSubscribeType("Unknown subscription type received!")
-
-        elif isinstance(event_data, (TyEv, type)):  # FIXME
-            default_data = Event.get_default_data(event_data)
-            e_type, name, meta = default_data
-
-            if subscribe_type == SubscribeType.NAME:
-                signal = name
-            elif subscribe_type == SubscribeType.ID:
-                signal = Event.get_id(*default_data)
-            else:
-                raise UnknownSubscribeType(
-                    f"Cannot use {subscribe_type} with class/enum types."
-                )
-
-        else:
-            raise UnknownEventDataType("Unknown event data type received!")
-
-        with self._lock:
-            if signal is None:
-                raise TypesInconsistency(
-                    "Event data must comply with the SubscribeType. logic!"
-                )
-
-            subscribers_list = self._subscribers[subscribe_type]["lists"].setdefault(
-                signal, []
-            )
-
-            subscribers_id_set = self._subscribers[subscribe_type][
-                "id_sets"
-            ].setdefault(signal, set())
-
-            for handler in handlers:
-                if not callable(handler):
-                    raise TypesInconsistency(
-                        f"Each handler must be callable! Handler '{handler}' is not."
-                    )
-
-                h_id = id(handler)
-
-                if h_id not in subscribers_id_set:
-                    subscribers_list.append(handler)
-                    subscribers_id_set.add(h_id)
+        self._suborch.subscribe(event_data, handlers, subscribe_type)
 
     def publish(self, event: Event):
         """Публикует событие в шину.
@@ -306,7 +219,7 @@ class EventBus:
             >>> bus.stop()
 
         """
-        self._queue.put(event)
+        self._queueorch.put(event, event.timeout, event.block)
 
     def _dispatch(self):
         """Внутренний цикл обработки событий"""
@@ -315,20 +228,9 @@ class EventBus:
         while not self._stop_flag.is_set():
             if not self._pause_flag.is_set():
                 try:
-                    event: Event = self._queue.get()
-                    with self._lock:
-                        handlers_to_call = []
+                    event: Event = self._queueorch.get(timeout=0.1)
 
-                        signals = {
-                            SubscribeType.NUMBER: event.num,
-                            SubscribeType.ID: event.id,
-                            SubscribeType.NAME: event.name,
-                        }
-
-                        for sub_type, signal in signals.items():
-                            handlers = self._subscribers[sub_type]["lists"].get(signal)
-                            if handlers:
-                                handlers_to_call.extend(handlers.copy())
+                    handlers_to_call = self._suborch.get_handlers_snapshot(event)
 
                     for handler in handlers_to_call:
                         try:
@@ -348,7 +250,8 @@ class EventBus:
                                         HandlerWarning,
                                         stacklevel=STACKLEVEL,
                                     )
-                                except queue.Full:
+
+                                except QueueFull:
                                     warnings.warn(
                                         f"Bus error event (name='{event.name}', id={event.id}, num={event.num}) did not added to the queue! Queue is full!",
                                         QueueFullWarning,
@@ -363,8 +266,11 @@ class EventBus:
 
                     # self._queue.task_done()
 
-                except queue.Empty:
+                except QueueEmpty:
                     continue
+
+                except QueueReset:
+                    return
 
                 except Exception:
                     # self._queue.task_done()
@@ -374,9 +280,7 @@ class EventBus:
         self._on_air_flag.clear()
 
     def clean_queue(self, *args, **kwargs):
-        self._pause_flag.set()
-        self._queue.clean_queue()
-        self._pause_flag.clear()
+        self._queueorch.clean_queue()
 
     def start(self):
         """Запуск диспетчера в отдельном потоке"""
@@ -391,26 +295,17 @@ class EventBus:
         """Остановка шины"""
         self._stop_flag.set()
 
+        self._queueorch.reset_queue()
+
         if self._thread:
             self._thread.join()
 
     def report(self) -> dict:
-        with self._lock:
-            subscribers = {
-                t.value: {
-                    "lists": {
-                        i: [Handler.get_handler_name(h) for h in h_group]
-                        for i, h_group in t_group["lists"].items()
-                    },
-                    "id_sets": {i: list(s) for i, s in t_group["id_sets"].items()},
-                }
-                for t, t_group in self._subscribers.items()
-            }
+        report = {
+            "subscribers": self._suborch.info,
+            "queue_info": self._queueorch.info,
+        }
 
-            report = {
-                "subscribers": subscribers,
-                "queue_info": self._queue.info,
-            }
         return report
 
 

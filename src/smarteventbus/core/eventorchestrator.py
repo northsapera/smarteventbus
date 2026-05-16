@@ -22,10 +22,11 @@ from .custexceptions import (
     QueueEmpty,
     QueueError,
     QueueFull,
+    QueueReset,
     UnknownExitType,
     WaitTimeoutError,
 )
-from .custwarnings import WaitTimeoutWarning
+from .custwarnings import QueueResetWarning, WaitTimeoutWarning
 from .eventclasses import Event
 from .eventqueue import UniquePriorityQueue
 from .logictypes import ExitType
@@ -41,64 +42,76 @@ class QueueOrchestrator:
 
         self._queue = UniquePriorityQueue()
 
+        self._reset = False
+
     def put(
         self,
         event: Event,
         timeout: None | float = None,
         block: bool = True,
-        no_wait: bool = False,
+        _no_wait: bool = False,
     ) -> None:
         def queue_is_free():
-            return not self.maxsize > 0 or self._queue.qsize < self.maxsize
+            return (
+                not self.maxsize > 0 or self._queue.qsize < self.maxsize or self._reset
+            )
 
         with self._lock:
-            timeout = timeout if block and not no_wait else 0
+            timeout = timeout if block and not _no_wait else 0
 
             success = self._producer_condition.wait_for(
                 lambda: self._queue.can_put(event) and queue_is_free(),
                 timeout=timeout,
             )
 
+            if self._reset:
+                warnings.warn(
+                    f"Query reset, event {event} was rejected.", QueueResetWarning
+                )
+                return
+
             if not success:
-                if queue_is_free():
-                    if event.wait_timeout_exit == ExitType.REJECT:
-                        self._queue.inspection.wait_errors_amount()
-                        raise WaitTimeoutError(
-                            f"The WAIT logic event (name='{event.name}', id={event.id}, num={event.num}) was rejected by timeout ({timeout})!"
-                        )
+                if self.maxsize > 0 and self._queue.qsize >= self.maxsize:
+                    raise QueueFull(
+                        f"The event '{event.name}' was rejected by full queue!"
+                    )
 
-                    elif event.wait_timeout_exit == ExitType.PUT:
-                        self._queue.inspection.wait_warnings_amount()
-                        warnings.warn(
-                            f"Event(name='{event.name}', id={event.id}, num={event.num}) WAIT timeout ({timeout}) exceeded. Forcing PUT into queue. Total WAIT timeout warnings amount: {int(self._queue.inspection.wait_warnings_amount)}",
-                            WaitTimeoutWarning,
-                            stacklevel=STACKLEVEL,
-                        )
+                if event.wait_timeout_exit == ExitType.REJECT:
+                    self._queue.inspection.wait_errors_amount()
+                    raise WaitTimeoutError(
+                        f"The WAIT logic event '{event.name}' was rejected by timeout ({timeout})!"
+                    )
 
-                    else:
-                        raise UnknownExitType("Unknown exit logic type received!")
+                elif event.wait_timeout_exit == ExitType.PUT:
+                    self._queue.inspection.wait_warnings_amount()
+                    warnings.warn(
+                        f"Event '{event.name}' WAIT timeout exceeded. Forcing PUT into queue.",
+                        WaitTimeoutWarning,
+                        stacklevel=STACKLEVEL,
+                    )
 
                 else:
-                    raise QueueFull(
-                        f"The event (name='{event.name}', id={event.id}, num={event.num}) was rejected by full queue!"
-                    )
+                    raise UnknownExitType("Unknown exit logic type received!")
 
             self._queue.put(event)
 
             self._consumer_condition.notify()
 
     def get(
-        self, timeout: None | float = None, block: bool = True, no_wait: bool = False
+        self, timeout: None | float = None, block: bool = True, _no_wait: bool = False
     ) -> Event:
         def queue_is_available():
-            return self._queue.qsize > 0
+            return self._queue.qsize > 0 or self._reset
 
         with self._lock:
-            timeout = timeout if block and not no_wait else 0
+            timeout = timeout if block and not _no_wait else 0
 
             success = self._consumer_condition.wait_for(
                 queue_is_available, timeout=timeout
             )
+
+            if self._reset:
+                raise QueueReset("Query reset, getting was rejected.")
 
             if not success:
                 raise QueueEmpty(f"Queue is empty by timeout ({timeout})!")
@@ -110,16 +123,23 @@ class QueueOrchestrator:
             return event
 
     def put_no_wait(self, event: Event) -> None:
-        self.put(event, no_wait=True)
+        self.put(event, _no_wait=True)
 
     def get_no_wait(self) -> Event:
-        return self.get(no_wait=True)
+        return self.get(_no_wait=True)
 
     def clean_queue(self) -> None:
         with self._lock:
             self._queue.clean_queue()
 
             self._producer_condition.notify_all()
+
+    def reset_queue(self) -> None:
+        with self._lock:
+            self._reset = True
+
+            self._producer_condition.notify_all()
+            self._consumer_condition.notify_all()
 
     @property
     def qsize(self) -> int:

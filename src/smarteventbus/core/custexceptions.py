@@ -36,6 +36,10 @@ class WaitTimeoutError(QueueError):
     pass
 
 
+class QueueReset(QueueError):
+    pass
+
+
 class BusTypeError(BusError):
     pass
 

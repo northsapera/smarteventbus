@@ -44,6 +44,10 @@ class QueueFullWarning(QueueWarning):
     pass
 
 
+class QueueResetWarning(QueueWarning):
+    pass
+
+
 class EventWarning(BusWarning):
     pass
 
