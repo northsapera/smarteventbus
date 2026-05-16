@@ -40,6 +40,22 @@ class QueueReset(QueueError):
     pass
 
 
+class ThreadingsError(BusError):
+    pass
+
+
+class ExecutorError(ThreadingsError):
+    pass
+
+
+class ExecutorInitError(ExecutorError):
+    pass
+
+
+class UnknownExecutorConfig(ExecutorError):
+    pass
+
+
 class BusTypeError(BusError):
     pass
 

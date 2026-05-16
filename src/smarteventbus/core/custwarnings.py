@@ -28,6 +28,10 @@ class SubscribeTypeWarning(BusWarning):
     pass
 
 
+class ExecutorWarning(BusWarning):
+    pass
+
+
 class QueueWarning(BusWarning):
     pass
 
