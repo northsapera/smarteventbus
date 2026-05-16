@@ -390,8 +390,7 @@ class UniquePriorityQueue:
 
         Examples:
             Подготовка: Создаем очередь и добавляем данные
-            >>> _lock = threading.Lock()
-            >>> _queue = UniquePriorityQueue(shared_lock=_lock, maxsize=10)
+            >>> _queue = UniquePriorityQueue()
             >>> _queue.put(Event(name="click", priority=10))
             >>> _queue.put(TyEv.CANCEL(meta={"window": "main"}, kwargs={'button': 1}))
             >>> e = TyEv.CANCEL(name="CANCEL", meta={"window": "main"}, kwargs={'button': 2})
@@ -399,8 +398,8 @@ class UniquePriorityQueue:
             >>> e.make_nonvalid()
 
             Получение отчета:
-            >>> _queue.info() # doctest: +ELLIPSIS
-            {'qsize': 3, 'maxsize': 10, 'ids_amount': 2, 'inspection': {'wait_warnings_amount': ..., 'wait_errors_amount': ..., 'nonvalid_events_gotten': ..., 'putting_failed': ...}, 'satellite': {339514816366116273679071597463465878107: {'events_amount': 1, 'type': 'Event', 'name': 'click', 'meta': {}, 'nums': [(..., True)]}, 315106522019672546056486932092520271199: {'events_amount': 2, 'type': 'CANCEL_EVENT', 'name': 'CANCEL', 'meta': {'window': 'main'}, 'nums': [(..., True), (..., False)]}}}
+            >>> _queue.info # doctest: +ELLIPSIS
+            {'qsize': 3, 'ids_amount': 2, 'inspection': {'wait_warnings_amount': ..., 'wait_errors_amount': ..., 'nonvalid_events_gotten': ..., 'putting_failed': ...}, 'satellite': {339514816366116273679071597463465878107: {'events_amount': 1, 'type': 'Event', 'name': 'click', 'meta': {}, 'nums': [(..., True)]}, 315106522019672546056486932092520271199: {'events_amount': 2, 'type': 'CANCEL_EVENT', 'name': 'CANCEL', 'meta': {'window': 'main'}, 'nums': [(..., True), (..., False)]}}}
         """
         report: dict = {
             "qsize": self.qsize,
