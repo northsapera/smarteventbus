@@ -53,3 +53,12 @@ class SubscribeType(str, Enum):
     """Подписка на имя и метаданные (полное совпадение)."""
     NAME = "NAME"
     """Подписка на имя события (сигнал)."""
+
+
+class ThreadType(str, Enum):
+    """Виды пулов потоков"""
+
+    POOL = "pool"
+    """Общий поток"""
+    DEDICATED = "dedicated"
+    """Выделенный поток"""

@@ -17,7 +17,7 @@
 import threading
 import warnings
 
-from .config import STACKLEVEL
+from .config import STACKLEVEL, debug_mode
 from .custexceptions import (
     QueueEmpty,
     QueueError,
@@ -26,7 +26,7 @@ from .custexceptions import (
     UnknownExitType,
     WaitTimeoutError,
 )
-from .custwarnings import QueueResetWarning, WaitTimeoutWarning
+from .custwarnings import NonValidEventWarning, QueueResetWarning, WaitTimeoutWarning
 from .eventclasses import Event
 from .eventqueue import UniquePriorityQueue
 from .logictypes import ExitType

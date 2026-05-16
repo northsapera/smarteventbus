@@ -176,7 +176,7 @@ class SubscriptionOrchestrator:
 
     # endregion get signal logic types
 
-    def get_handlers_snapshot(self, event: Event) -> list[Callable]:
+    def get_handlers_snapshot(self, event: Event) -> list[Handler | Callable]:
         with self._lock:
             snapshot = []
 

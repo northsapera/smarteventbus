@@ -55,6 +55,8 @@ class UniquePriorityQueue:
         nonvalid_events_gotten: EasyCounter = field(default_factory=EasyCounter)
         putting_failed: EasyCounter = field(default_factory=EasyCounter)
         events_cleaned: EasyCounter = field(default_factory=EasyCounter)
+        total_puts: EasyCounter = field(default_factory=EasyCounter)
+        total_gets: EasyCounter = field(default_factory=EasyCounter)
 
         def snapshot(self) -> dict:
             """Превращает в словарь."""
@@ -112,7 +114,7 @@ class UniquePriorityQueue:
     # endregion can_put types
 
     def put(self, event: Event) -> None:
-        self._add_to_satellite(event)
+        self.inspection.total_puts()
 
         try:
             if event.uniq_type == UniqType.NONE:
@@ -129,8 +131,10 @@ class UniquePriorityQueue:
 
             heapq.heappush(self._queue, event)
 
+            self._add_to_satellite(event)
+
         except Exception as e:
-            self._remove_from_sattelite(event)
+            self._remove_from_satellite(event)
 
             self.inspection.putting_failed()
 
@@ -157,6 +161,7 @@ class UniquePriorityQueue:
             _old_event = _events_list[idx]
 
             _old_event.make_nonvalid()
+            self._remove_nonvalid_fron_satellite(_old_event)
 
             event.priority_counter = _old_event.priority_counter
 
@@ -171,7 +176,8 @@ class UniquePriorityQueue:
         nums_group = self._satellite.nums
 
         id_group[event.num] = event
-        id_valid_group[event.num] = event
+        if event.is_valid:
+            id_valid_group[event.num] = event
         names_group[event.num] = event
         nums_group[event.num] = event
 
@@ -180,10 +186,15 @@ class UniquePriorityQueue:
     # region get
 
     def get(self) -> Event:
+        self.inspection.total_gets()
+
         while True:
+            if self.qsize == 0:
+                raise QueueEmpty("The Queue is empty!")
+
             event = heapq.heappop(self._queue)
 
-            self._remove_from_sattelite(event)
+            self._remove_from_satellite(event)
 
             if not event.is_valid:
                 self.inspection.nonvalid_events_gotten()
@@ -199,9 +210,8 @@ class UniquePriorityQueue:
 
             return event
 
-    def _remove_from_sattelite(self, event: Event) -> None:
+    def _remove_from_satellite(self, event: Event) -> None:
         id_group = self._satellite.ids.get(event.id)
-        id_valid_group = self._satellite.ids_valid.get(event.id)
         names_group = self._satellite.names.get(event.name)
         nums_group = self._satellite.nums.get(event.num)
 
@@ -210,18 +220,23 @@ class UniquePriorityQueue:
             if not id_group:
                 self._satellite.ids.pop(event.id)
 
-        if id_valid_group:
-            id_valid_group.pop(event.num, None)
-            if not id_valid_group:
-                self._satellite.ids_valid.pop(event.id)
+        self._remove_nonvalid_fron_satellite(event)
 
         if names_group:
             names_group.pop(event.num, None)
-            if not id_valid_group:
+            if not names_group:
                 self._satellite.names.pop(event.name)
 
         if nums_group:
             self._satellite.nums.pop(event.num)
+
+    def _remove_nonvalid_fron_satellite(self, event: Event) -> None:
+        id_valid_group = self._satellite.ids_valid.get(event.id)
+
+        if id_valid_group:
+            id_valid_group.pop(event.num, None)
+            if not id_valid_group:
+                self._satellite.ids_valid.pop(event.id)
 
     # endregion get
 
@@ -365,6 +380,7 @@ class UniquePriorityQueue:
             event (Event): Событие.
         """
         event.make_nonvalid()
+        self._remove_nonvalid_fron_satellite(event)
 
     def valid_event(self, event: Event) -> None:
         """Ревалидизация заданного события, используется только для ручной ревалидизации.
@@ -399,7 +415,7 @@ class UniquePriorityQueue:
 
             Получение отчета:
             >>> _queue.info # doctest: +ELLIPSIS
-            {'qsize': 3, 'ids_amount': 2, 'inspection': {'wait_warnings_amount': ..., 'wait_errors_amount': ..., 'nonvalid_events_gotten': ..., 'putting_failed': ...}, 'satellite': {339514816366116273679071597463465878107: {'events_amount': 1, 'type': 'Event', 'name': 'click', 'meta': {}, 'nums': [(..., True)]}, 315106522019672546056486932092520271199: {'events_amount': 2, 'type': 'CANCEL_EVENT', 'name': 'CANCEL', 'meta': {'window': 'main'}, 'nums': [(..., True), (..., False)]}}}
+            {'qsize': 3, 'ids_amount': 2, 'inspection': {'wait_warnings_amount': ...
         """
         report: dict = {
             "qsize": self.qsize,
@@ -416,6 +432,7 @@ class UniquePriorityQueue:
             data_name = ""
             data_meta = {}
             nums = []
+            valid_events = []
 
             if nums_amount:
                 first_event = next(iter(id_group.values()))
@@ -427,8 +444,13 @@ class UniquePriorityQueue:
 
                     nums = [(k, e.is_valid) for k, e in id_group.items()]
 
+                    for n in nums:
+                        if n[1]:
+                            valid_events.append(n)
+
             report["satellite"][event_id] = {
                 "events_amount": nums_amount,
+                "valid_events_amount": len(valid_events),
                 "type": data_type,
                 "name": data_name,
                 "meta": data_meta.copy(),

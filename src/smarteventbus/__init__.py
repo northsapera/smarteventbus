@@ -16,7 +16,7 @@
 Smart Event Bus: A thread-safe event bus library for Python.
 """
 
-__version__ = "0.9.0"
+__version__ = "0.10.0"
 __author__ = "Matvey Grigoryev"
 
 from .core.config import debug_mode
@@ -59,7 +59,7 @@ from .core.custwarnings import (
 )
 from .core.eventclasses import Event, TyEv
 from .core.handlerclasses import Handler
-from .core.logictypes import ExitType, SearchType, SubscribeType, UniqType
+from .core.logictypes import ExitType, SearchType, SubscribeType, ThreadType, UniqType
 from .eventbus import BusNetwork, EventBus, bus
 from .utils.flatten import FlatDict, check_flat
 
@@ -77,6 +77,7 @@ __all__ = [
     "ExitType",
     "SearchType",
     "SubscribeType",
+    "ThreadType",
     "UniqType",
     # Utils
     "FlatDict",

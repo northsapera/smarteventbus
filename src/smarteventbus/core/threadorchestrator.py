@@ -30,6 +30,7 @@ from .custexceptions import (
 )
 from .custwarnings import ExecutorWarning
 from .handlerclasses import Handler
+from .logictypes import ThreadType
 
 
 class AsyncLoopExecutor:
@@ -67,12 +68,13 @@ class AsyncLoopExecutor:
             self._execute(fn, *args, **kwargs), self._loop
         )
 
-    async def _execute(self, fn: Callable, *args, **kwargs):
+    async def _execute(self, fn: Callable, *args, **kwargs) -> Any:
         # Если переданная функция сама является корутиной
-        if inspect.iscoroutinefunction(fn):
-            return await fn(*args, **kwargs)
+        result = fn(*args, **kwargs)
+        if inspect.iscoroutine(result):
+            return await result
         # Если это обычная функция, которая внутри себя вызывает/обрабатывает корутины
-        return fn(*args, **kwargs)
+        return result
 
     def shutdown(self, wait: bool = True) -> None:
         """Корректная остановка цикла событий и завершение потока"""
@@ -128,7 +130,7 @@ class ThreadOrchestrator:
 
     def _get_executor_for_context(
         self, context: str = "pool", is_async: bool = False, handler: Any = None
-    ) -> Any:
+    ) -> ThreadPoolExecutor | AsyncLoopExecutor:
         """
         Фабричный метод, возвращающий нужный экзекутор на основе политик хэндлера.
         """
@@ -145,14 +147,14 @@ class ThreadOrchestrator:
     def _choose_pool(
         self, context: str, handler: Any, storage: ExecutorStorage, exec_class: type
     ) -> Any:
-        if context == "pool":
+        if context == ThreadType.POOL:
             if not storage.shared:
                 raise ExecutorInitError(
                     f"Executor 'pool' in {storage} is not initialized!"
                 )
             return storage.shared
 
-        elif context == "dedicated":
+        elif context == ThreadType.DEDICATED:
             with self._lock:
                 if handler not in storage.dedicated:
                     storage.dedicated[handler] = exec_class(

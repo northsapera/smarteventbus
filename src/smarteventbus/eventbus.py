@@ -15,13 +15,13 @@
 
 """The main dispatcher (conductor), ensuring the interaction of all elements of the system. Main bus."""
 
-import asyncio
+import inspect
 import queue
 import threading
 import time
 import warnings
 from enum import Enum
-from typing import Callable
+from typing import Any, Callable, Optional
 
 from .core.config import STACKLEVEL
 from .core.custexceptions import (
@@ -43,25 +43,32 @@ from .core.eventclasses import Event, TyEv
 from .core.eventorchestrator import QueueOrchestrator
 from .core.eventqueue import UniquePriorityQueue
 from .core.handlerclasses import Handler
-from .core.logictypes import SubscribeType, UniqType
+from .core.logictypes import SubscribeType, ThreadType, UniqType
 from .core.subscriptionorchestrator import SubscriptionOrchestrator
+from .core.threadorchestrator import ThreadOrchestrator
 
-warnings.filterwarnings("ignore", category=NonValidEventWarning)
+# warnings.filterwarnings("ignore", category=NonValidEventWarning)
 
 
 # Шина
 class EventBus:
     """Шина событий."""
 
-    def __init__(self, maxsize: int = 0):
-        self._queueorch = QueueOrchestrator()
+    def __init__(
+        self, maxsize: int = 0, maxworkers: Optional[int] = None, paused: bool = False
+    ):
+        self._queueorch = QueueOrchestrator(maxsize=maxsize)
         self._suborch = SubscriptionOrchestrator()
+        self._threadorch = ThreadOrchestrator(maxworkers_sync=maxworkers)
 
         self._stop_flag = threading.Event()
-        self._pause_flag = threading.Event()
+        self._can_running_flag = threading.Event()
         self._on_air_flag = threading.Event()
 
         self._thread = None
+
+        if not paused:
+            self._can_running_flag.set()
 
     def subscribe(
         self,
@@ -226,58 +233,105 @@ class EventBus:
         self._on_air_flag.set()
 
         while not self._stop_flag.is_set():
-            if not self._pause_flag.is_set():
-                try:
-                    event: Event = self._queueorch.get(timeout=0.1)
+            self._can_running_flag.wait()
 
-                    handlers_to_call = self._suborch.get_handlers_snapshot(event)
+            if self._stop_flag.is_set():
+                break
 
-                    for handler in handlers_to_call:
+            try:
+                event: Event = self._queueorch.get(timeout=0.1)
+
+                handlers_to_call = self._suborch.get_handlers_snapshot(event)
+
+                for handler in handlers_to_call:
+                    context = getattr(handler, "execution_context", ThreadType.POOL)
+                    is_async = getattr(
+                        handler, "is_async", inspect.iscoroutinefunction(handler)
+                    )
+                    strict_order = getattr(handler, "strict_order", True)
+
+                    executor = self._threadorch._get_executor_for_context(
+                        context=context, is_async=is_async, handler=handler
+                    )
+
+                    future = executor.submit(self._run_handler, handler, event)
+
+                    if strict_order:
                         try:
-                            handler(*event.args, **event.kwargs)
-
+                            future.result()
                         except Exception as e:
-                            handler_error_event = TyEv.BUS_ERROR(
-                                kwargs={
-                                    "txt": f"Ошибка через шину.\nСобытие: {event}.\nОшибка обработчика: {handler}: {e}",
-                                }
+                            warnings.warn(
+                                f"[EventBus] Infrastructure strict wait failed: {e}",
+                                UnpredictableBusWarning,
                             )
-                            if event.id != handler_error_event.id:
-                                try:
-                                    self.publish(handler_error_event)
-                                    warnings.warn(
-                                        f"Handler on event\n'{event}\n'{handler}' ended with error: {e}",
-                                        HandlerWarning,
-                                        stacklevel=STACKLEVEL,
-                                    )
 
-                                except QueueFull:
-                                    warnings.warn(
-                                        f"Bus error event (name='{event.name}', id={event.id}, num={event.num}) did not added to the queue! Queue is full!",
-                                        QueueFullWarning,
-                                        stacklevel=STACKLEVEL,
-                                    )
-                            else:
-                                warnings.warn(
-                                    f"Bus error event (name='{event.name}', id={event.id}, num={event.num}) is ended with error! Error: {e}",
-                                    UnpredictableBusWarning,
-                                    stacklevel=STACKLEVEL,
-                                )
+                # self._queue.task_done()
 
-                    # self._queue.task_done()
+            except QueueEmpty:
+                continue
 
-                except QueueEmpty:
-                    continue
+            except QueueReset:
+                return
 
-                except QueueReset:
-                    return
+            except Exception:
+                # self._queue.task_done()
 
-                except Exception:
-                    # self._queue.task_done()
-
-                    raise
+                raise
 
         self._on_air_flag.clear()
+
+    def _run_handler(self, handler: Handler | Callable, event: Event) -> Any:
+        """
+        Выполняется внутри целевого экзекутора.
+        Универсально вызывает как голые функции, так и объекты Handler.
+        """
+        try:
+            result = handler(*event.args, **event.kwargs)
+
+            if inspect.iscoroutine(result):
+
+                async def async_error_wrapper(coro):
+                    try:
+                        return await coro
+                    except Exception as ax_e:
+                        self._handle_processing_error(handler, event, ax_e)
+
+                return async_error_wrapper(result)
+
+            return result
+
+        except Exception as e:
+            self._handle_processing_error(handler, event, e)
+
+    def _handle_processing_error(self, handler: Callable, event: Event, e: Exception):
+        handler_error_event = TyEv.BUS_ERROR(
+            kwargs={
+                "txt": f"Ошибка через шину.\nСобытие: {event}.\nОшибка обработчика: {Handler.get_handler_name(handler)}: {type(e).__name__} - {e}",
+            }
+        )
+
+        if event.id != handler_error_event.id:
+            try:
+                self.publish(handler_error_event)
+                warnings.warn(
+                    f"Handler '{Handler.get_handler_name(handler)}' on event (type='{event.type}', name='{event.name}', meta='{event.meta}') ended with error: {type(e).__name__} - {e}",
+                    HandlerWarning,
+                    stacklevel=STACKLEVEL,
+                )
+
+            except QueueFull:
+                warnings.warn(
+                    f"Bus error event (name='{event.name}', id='{event.id}', num='{event.num}') did not added to the queue! Queue is full!",
+                    QueueFullWarning,
+                    stacklevel=STACKLEVEL,
+                )
+
+        else:
+            warnings.warn(
+                f"Bus error event (name='{event.name}', id={event.id}, num={event.num}) is ended with error! Error: {type(e).__name__} - {e}",
+                UnpredictableBusWarning,
+                stacklevel=STACKLEVEL,
+            )
 
     def clean_queue(self, *args, **kwargs):
         self._queueorch.clean_queue()
@@ -286,19 +340,31 @@ class EventBus:
         """Запуск диспетчера в отдельном потоке"""
         if not self._on_air_flag.is_set():
             self._stop_flag.clear()
-            self._pause_flag.clear()
 
             self._thread = threading.Thread(target=self._dispatch, daemon=True)
             self._thread.start()
 
+            self._threadorch.start()
+
     def stop(self):
         """Остановка шины"""
         self._stop_flag.set()
+        self._can_running_flag.set()
 
+        # Информируем оркестратор очереди, что пора раздать QueueReset всем, кто ждет get()
         self._queueorch.reset_queue()
 
         if self._thread:
-            self._thread.join()
+            self._thread.join(timeout=2.0)
+
+        # Тушим пулы потоков в оркестраторе
+        self._threadorch.stop()
+
+    def pause(self):
+        self._can_running_flag.clear()
+
+    def resume(self):
+        self._can_running_flag.set()
 
     def report(self) -> dict:
         report = {

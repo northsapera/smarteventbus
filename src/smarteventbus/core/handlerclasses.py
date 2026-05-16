@@ -36,6 +36,7 @@ from pydantic import (
 
 from .custexceptions import HandlerError
 from .custwarnings import UnpredictableBusWarning
+from .logictypes import ThreadType
 
 
 # Класс подписчиков (хэндлеров)
@@ -76,6 +77,9 @@ class Handler(BaseModel):
     func: Callable
     default_kwargs: dict = Field(default_factory=dict)
     force_kwargs: dict = Field(default_factory=dict)
+
+    strict_order: bool = Field(default=True)
+    context: str = Field(default=ThreadType.POOL)
 
     _has_kwargs: bool = PrivateAttr(default=False)
     _mask_params: set[str] = PrivateAttr(default_factory=set[str])
@@ -144,6 +148,10 @@ class Handler(BaseModel):
     @property
     def id(self) -> int:
         return self._id
+
+    @property
+    def is_async(self) -> bool:
+        return self._is_async
 
     def __init_subclass__(cls, **kwargs):
         """Проверка на переопределение типов в подклассах
