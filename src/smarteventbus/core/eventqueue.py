@@ -84,48 +84,49 @@ class UniquePriorityQueue:
     # region put
     def can_put(self, event: Event) -> bool:
         if event.uniq_type == UniqType.NONE:
-            return self._bare_put(event)
+            return self._bare_check(event)
 
         elif event.uniq_type == UniqType.WAIT:
-            return self._waiting_put(event)
+            return self._waiting_check(event)
 
         elif event.uniq_type == UniqType.REPLACE:
-            return self._replacing_put(event)
+            return self._replacing_check(event)
 
         else:
             raise UnknownUniqType("Unknown unique logic type received!")
 
-    # region put types
+    # region can_put types
 
-    def _bare_put(self, event: Event) -> bool:
+    def _bare_check(self, event: Event) -> bool:
         return True
 
-    def _waiting_put(self, event: Event) -> bool:
+    def _waiting_check(self, event: Event) -> bool:
         if len(self._satellite.ids_valid.get(event.id, {})) >= event.uniq_counter:
             return False
         else:
             return True
 
-    def _replacing_put(self, event: Event) -> bool:
-        _events_list = sorted(self._satellite.ids_valid.get(event.id, {}).values())
-
-        if _events_list:
-            idx = min(event.uniq_counter - 1, len(_events_list) - 1)
-
-            _old_event = _events_list[idx]
-
-            _old_event.make_nonvalid()
-
-            event.priority_counter = _old_event.priority_counter
-
+    def _replacing_check(self, event: Event) -> bool:
         return True
 
-    # endregion put types
+    # endregion can_put types
 
     def put(self, event: Event) -> None:
         self._add_to_satellite(event)
 
         try:
+            if event.uniq_type == UniqType.NONE:
+                self._bare_extra(event)
+
+            elif event.uniq_type == UniqType.WAIT:
+                self._waiting_extra(event)
+
+            elif event.uniq_type == UniqType.REPLACE:
+                self._replacing_extra(event)
+
+            else:
+                raise UnknownUniqType("Unknown unique logic type received!")
+
             heapq.heappush(self._queue, event)
 
         except Exception as e:
@@ -138,6 +139,30 @@ class UniquePriorityQueue:
                 PuttingFailedWarning,
                 stacklevel=STACKLEVEL,
             )
+
+    # region uniq extra logic
+
+    def _bare_extra(self, event: Event) -> None:
+        return
+
+    def _waiting_extra(self, event: Event) -> None:
+        return
+
+    def _replacing_extra(self, event: Event) -> None:
+        _events_list = sorted(self._satellite.ids_valid.get(event.id, {}).values())
+
+        if _events_list:
+            idx = min(event.uniq_counter - 1, len(_events_list) - 1)
+
+            _old_event = _events_list[idx]
+
+            _old_event.make_nonvalid()
+
+            event.priority_counter = _old_event.priority_counter
+
+        return
+
+    # endregion uniq extra logic
 
     def _add_to_satellite(self, event: Event) -> None:
         id_group = self._satellite.ids.setdefault(event.id, {})
