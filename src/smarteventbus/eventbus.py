@@ -243,26 +243,20 @@ class EventBus:
 
                 handlers_to_call = self._suborch.get_handlers_snapshot(event)
 
-                for handler in handlers_to_call:
-                    context = getattr(handler, "execution_context", ThreadType.POOL)
-                    is_async = getattr(
-                        handler, "is_async", inspect.iscoroutinefunction(handler)
-                    )
-                    strict_order = getattr(handler, "strict_order", True)
+                callback_events: list[Event] | None = self._threadorch.iter_handlers(
+                    handlers_to_call, event
+                )
 
-                    executor = self._threadorch._get_executor_for_context(
-                        context=context, is_async=is_async, handler=handler
-                    )
-
-                    future = executor.submit(self._run_handler, handler, event)
-
-                    if strict_order:
+                if callback_events:
+                    for callback_event in callback_events:
                         try:
-                            future.result()
-                        except Exception as e:
+                            self.publish(callback_event)
+
+                        except QueueFull:
                             warnings.warn(
-                                f"[EventBus] Infrastructure strict wait failed: {e}",
-                                UnpredictableBusWarning,
+                                f"Bus event (type='{event.type}', name='{event.name}', id='{event.id}', num='{event.num}') did not added to the queue! Queue is full!",
+                                QueueFullWarning,
+                                stacklevel=STACKLEVEL,
                             )
 
                 # self._queue.task_done()
@@ -279,59 +273,6 @@ class EventBus:
                 raise
 
         self._on_air_flag.clear()
-
-    def _run_handler(self, handler: Handler | Callable, event: Event) -> Any:
-        """
-        Выполняется внутри целевого экзекутора.
-        Универсально вызывает как голые функции, так и объекты Handler.
-        """
-        try:
-            result = handler(*event.args, **event.kwargs)
-
-            if inspect.iscoroutine(result):
-
-                async def async_error_wrapper(coro):
-                    try:
-                        return await coro
-                    except Exception as ax_e:
-                        self._handle_processing_error(handler, event, ax_e)
-
-                return async_error_wrapper(result)
-
-            return result
-
-        except Exception as e:
-            self._handle_processing_error(handler, event, e)
-
-    def _handle_processing_error(self, handler: Callable, event: Event, e: Exception):
-        handler_error_event = TyEv.BUS_ERROR(
-            kwargs={
-                "txt": f"Ошибка через шину.\nСобытие: {event}.\nОшибка обработчика: {Handler.get_handler_name(handler)}: {type(e).__name__} - {e}",
-            }
-        )
-
-        if event.id != handler_error_event.id:
-            try:
-                self.publish(handler_error_event)
-                warnings.warn(
-                    f"Handler '{Handler.get_handler_name(handler)}' on event (type='{event.type}', name='{event.name}', meta='{event.meta}') ended with error: {type(e).__name__} - {e}",
-                    HandlerWarning,
-                    stacklevel=STACKLEVEL,
-                )
-
-            except QueueFull:
-                warnings.warn(
-                    f"Bus error event (name='{event.name}', id='{event.id}', num='{event.num}') did not added to the queue! Queue is full!",
-                    QueueFullWarning,
-                    stacklevel=STACKLEVEL,
-                )
-
-        else:
-            warnings.warn(
-                f"Bus error event (name='{event.name}', id={event.id}, num={event.num}) is ended with error! Error: {type(e).__name__} - {e}",
-                UnpredictableBusWarning,
-                stacklevel=STACKLEVEL,
-            )
 
     def clean_queue(self, *args, **kwargs):
         self._queueorch.clean_queue()

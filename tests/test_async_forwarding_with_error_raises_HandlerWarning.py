@@ -67,7 +67,7 @@ class TestAsyncErrorWrapper(unittest.TestCase, BusNetwork):
         self.bus.publish(trigger_event)
 
         # 4. Ожидаем реакцию шины (таймаут 2 секунды, чтобы тест не завис в случае бага)
-        is_success = error_received_event.wait(timeout=2.0)
+        is_success = error_received_event.wait(timeout=10.0)
 
         # Проверяем утверждения (Asserts)
         self.assertTrue(

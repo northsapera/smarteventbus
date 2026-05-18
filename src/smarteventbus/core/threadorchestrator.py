@@ -22,13 +22,15 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
+from .config import STACKLEVEL
 from .custexceptions import (
     ExecutorError,
     ExecutorInitError,
     ThreadingsError,
     UnknownExecutorConfig,
 )
-from .custwarnings import ExecutorWarning
+from .custwarnings import ExecutorWarning, HandlerWarning, UnpredictableBusWarning
+from .eventclasses import Event, TyEv
 from .handlerclasses import Handler
 from .logictypes import ThreadType
 
@@ -165,3 +167,90 @@ class ThreadOrchestrator:
 
         else:
             raise UnknownExecutorConfig(f"Unknown execution context: {context}")
+
+    def iter_handlers(
+        self, handlers_to_call: list[Handler | Callable], event: Event
+    ) -> list[Event]:
+        result: Any = None
+        results: list[Any] = []
+        callback_events: list[Event] = []
+
+        for handler in handlers_to_call:
+            context = getattr(handler, "execution_context", ThreadType.POOL)
+            is_async = getattr(
+                handler, "is_async", inspect.iscoroutinefunction(handler)
+            )
+            strict_order = getattr(handler, "strict_order", True)
+
+            executor = self._get_executor_for_context(
+                context=context, is_async=is_async, handler=handler
+            )
+
+            future = executor.submit(self._run_handler, handler, event)
+
+            if strict_order:
+                try:
+                    result = future.result()
+                except Exception as e:
+                    warnings.warn(
+                        f"[EventBus] Infrastructure strict wait failed: {e}",
+                        UnpredictableBusWarning,
+                    )
+
+                results.append(
+                    result
+                )  # TODO: Добавить возможность коллбэчить любые возвращаемые события (сделать легко, но надо добавить возможность отключать эту функцию через настройки хэндлера)
+                if isinstance(result, TyEv.BUS_ERROR.value):
+                    callback_events.append(result)
+
+        return callback_events
+
+    def _run_handler(self, handler: Handler | Callable, event: Event) -> Any:
+        """
+        Выполняется внутри целевого экзекутора.
+        Универсально вызывает как голые функции, так и объекты Handler.
+        """
+        try:
+            result = handler(*event.args, **event.kwargs)
+
+            if inspect.iscoroutine(result):
+
+                async def async_error_wrapper(coro):
+                    try:
+                        return await coro
+                    except Exception as ax_e:
+                        return self._handle_processing_error(handler, event, ax_e)
+
+                return async_error_wrapper(result)
+
+            return result
+
+        except Exception as e:
+            return self._handle_processing_error(handler, event, e)
+
+    def _handle_processing_error(
+        self, handler: Callable, event: Event, e: Exception
+    ) -> Optional[Event]:
+        handler_error_event = TyEv.BUS_ERROR(
+            kwargs={
+                "txt": f"Ошибка через шину.\nСобытие: {event}.\nОшибка обработчика: {Handler.get_handler_name(handler)}: {type(e).__name__} - {e}",
+            }
+        )
+
+        if event.id != handler_error_event.id:
+            warnings.warn(
+                f"Handler '{Handler.get_handler_name(handler)}' on event (type='{event.type}', name='{event.name}', meta='{event.meta}') ended with error: {type(e).__name__} - {e}",
+                HandlerWarning,
+                stacklevel=STACKLEVEL,
+            )
+
+            return handler_error_event
+
+        else:
+            warnings.warn(
+                f"Bus error event (name='{event.name}', id={event.id}, num={event.num}) is ended with error! Error: {type(e).__name__} - {e}",
+                UnpredictableBusWarning,
+                stacklevel=STACKLEVEL,
+            )
+
+            return None

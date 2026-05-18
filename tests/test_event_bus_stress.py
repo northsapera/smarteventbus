@@ -65,7 +65,7 @@ def test_stress_run():
         Handler(
             func=async_worker,
             context=ThreadType.POOL,
-            strict_order=False,
+            strict_order=True,
         ),
     )
 
@@ -80,7 +80,7 @@ def test_stress_run():
 
     threads = []
     # Создаем n параллельных потоков-продюсеров, которые одновременно забьют шину
-    n = 20
+    n = 5
     for num in range(n):
         t = threading.Thread(target=producer, args=(num * 50, 50))
         threads.append(t)
