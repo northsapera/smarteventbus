@@ -44,6 +44,17 @@ class SearchType(str, Enum):
     """Поиск единичного события по уникальному порядковому номеру."""
 
 
+class PubType(str, Enum):
+    """Виды логики публикации событий"""
+
+    PUBLISH = "PUBLISH"
+    """Чистая отправка в шину"""
+    CALL = "CALL"
+    """Ожидание результата"""
+    FORWARD = "FORWARD"
+    """Проброс функции"""
+
+
 class SubscribeType(str, Enum):
     """Виды логики подписки."""
 

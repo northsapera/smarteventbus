@@ -23,6 +23,7 @@ from .core.config import debug_mode
 from .core.custexceptions import (
     BusError,
     BusTypeError,
+    CannotComplete,
     EventError,
     ExecutorError,
     ExecutorInitError,
@@ -32,6 +33,7 @@ from .core.custexceptions import (
     QueueError,
     QueueFull,
     QueueReset,
+    RePublishing,
     ThreadingsError,
     TypesInconsistency,
     UnknownEventDataType,
@@ -41,6 +43,7 @@ from .core.custexceptions import (
     UnknownSearchType,
     UnknownSubscribeType,
     UnknownUniqType,
+    UnReadToken,
     WaitTimeoutError,
 )
 from .core.custwarnings import (
@@ -85,6 +88,7 @@ __all__ = [
     # Exceptions
     "BusError",
     "BusTypeError",
+    "CannotComplete",
     "EventError",
     "ExecutorError",
     "ExecutorInitError",
@@ -94,6 +98,7 @@ __all__ = [
     "QueueError",
     "QueueFull",
     "QueueReset",
+    "RePublishing",
     "ThreadingsError",
     "TypesInconsistency",
     "UnknownEventDataType",
@@ -102,6 +107,7 @@ __all__ = [
     "UnknownExitType",
     "UnknownSearchType",
     "UnknownSubscribeType",
+    "UnReadToken",
     "UnknownUniqType",
     "WaitTimeoutError",
     # Warnings

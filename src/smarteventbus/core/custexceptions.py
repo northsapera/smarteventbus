@@ -96,5 +96,17 @@ class NonValidEvent(EventError):
     pass
 
 
+class RePublishing(EventError):
+    pass
+
+
+class UnReadToken(EventError):
+    pass
+
+
+class CannotComplete(EventError):
+    pass
+
+
 class HandlerError(BusError):
     pass

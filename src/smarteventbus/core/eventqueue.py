@@ -177,7 +177,7 @@ class UniquePriorityQueue:
         id_group = self._satellite.ids.setdefault(event.id, {})
         id_group[event.num] = event
 
-        if event.is_valid:
+        if event.is_valid_for_queue:
             id_valid_group = self._satellite.ids_valid.setdefault(event.id, {})
             id_valid_group[event.num] = event
 
@@ -202,7 +202,7 @@ class UniquePriorityQueue:
 
             self._remove_from_satellite(event)
 
-            if not event.is_valid:
+            if not event.is_valid_for_queue:
                 self.inspection.nonvalid_events_gotten()
 
                 if debug_mode.is_set():
@@ -388,14 +388,6 @@ class UniquePriorityQueue:
         event.make_nonvalid()
         self._remove_nonvalid_fron_satellite(event)
 
-    def valid_event(self, event: Event) -> None:
-        """Ревалидизация заданного события, используется только для ручной ревалидизации.
-
-        Args:
-            event (Event): Событие.
-        """
-        event.make_valid()
-
     # endregion events interaction
 
     # Самоинспекция
@@ -448,7 +440,7 @@ class UniquePriorityQueue:
                     data_name = first_event.name
                     data_meta = first_event.meta
 
-                    nums = [(k, e.is_valid) for k, e in id_group.items()]
+                    nums = [(k, e.state) for k, e in id_group.items()]
 
                     for n in nums:
                         if n[1]:

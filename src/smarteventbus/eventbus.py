@@ -43,9 +43,10 @@ from .core.eventclasses import Event, TyEv
 from .core.eventorchestrator import QueueOrchestrator
 from .core.eventqueue import UniquePriorityQueue
 from .core.handlerclasses import Handler
-from .core.logictypes import SubscribeType, ThreadType, UniqType
+from .core.logictypes import PubType, SubscribeType, ThreadType, UniqType
 from .core.subscriptionorchestrator import SubscriptionOrchestrator
 from .core.threadorchestrator import ThreadOrchestrator
+from .utils.flatten import FlatDict
 
 # warnings.filterwarnings("ignore", category=NonValidEventWarning)
 
@@ -226,6 +227,7 @@ class EventBus:
             >>> bus.stop()
 
         """
+        event.token.write_content(FlatDict(type=PubType.PUBLISH))
         self._queueorch.put(event, event.timeout, event.block)
 
     def _dispatch(self):

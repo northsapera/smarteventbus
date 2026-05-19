@@ -45,7 +45,7 @@ from .custexceptions import (
     UnknownUniqType,
 )
 from .custwarnings import EventWarning, UnpredictableBusWarning
-from .eventparent import EventParent
+from .eventparent import EventParent, EventToken, TokenState
 from .logictypes import ExitType, UniqType
 
 
@@ -67,7 +67,7 @@ class Event(EventParent, BaseModel):
     )
     _event_type: str = PrivateAttr(default="Event")
 
-    _valid_flag: bool = PrivateAttr(default=True)
+    _token: EventToken = PrivateAttr(default_factory=lambda: EventToken())
 
     # Полезная нагрузка
     name: str
@@ -133,8 +133,26 @@ class Event(EventParent, BaseModel):
         return self._event_type
 
     @property
+    def token(self) -> EventToken:
+        return self._token
+
+    @property
     def is_valid(self) -> bool:
-        return self._valid_flag
+        if self._token.state_num < 100:
+            return True
+        else:
+            return False
+
+    @property
+    def is_valid_for_queue(self) -> bool:
+        if self._token.state_type == TokenState.IN_QUEUE:
+            return True
+        else:
+            return False
+
+    @property
+    def state(self):
+        return self._token.state
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Event):
@@ -164,13 +182,9 @@ class Event(EventParent, BaseModel):
             other._event_number,
         )
 
-    def make_valid(self) -> None:
-        """Установка валидности события"""
-        self._valid_flag = True
-
     def make_nonvalid(self) -> None:
         """Установка невалидности события"""
-        self._valid_flag = False
+        self._token.devalid()
 
     def __repr_args__(self) -> Iterable[tuple[Optional[str], Any]]:
         """Переопределение repr для добавления туда приватных атрибутов"""

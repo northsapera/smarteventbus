@@ -24,6 +24,7 @@ from typing import Any, Callable, Optional
 
 from .config import STACKLEVEL
 from .custexceptions import (
+    CannotComplete,
     ExecutorError,
     ExecutorInitError,
     ThreadingsError,
@@ -175,15 +176,18 @@ class ThreadOrchestrator:
         results: list[Any] = []
         callback_events: list[Event] = []
 
+        event_context = event.token.read_content()
+
         for handler in handlers_to_call:
-            context = getattr(handler, "execution_context", ThreadType.POOL)
+            handler_context = getattr(handler, "execution_context", ThreadType.POOL)
+
             is_async = getattr(
                 handler, "is_async", inspect.iscoroutinefunction(handler)
             )
             strict_order = getattr(handler, "strict_order", True)
 
             executor = self._get_executor_for_context(
-                context=context, is_async=is_async, handler=handler
+                context=handler_context, is_async=is_async, handler=handler
             )
 
             future = executor.submit(self._run_handler, handler, event)
@@ -200,8 +204,14 @@ class ThreadOrchestrator:
                 results.append(
                     result
                 )  # TODO: Добавить возможность коллбэчить любые возвращаемые события (сделать легко, но надо добавить возможность отключать эту функцию через настройки хэндлера)
+                # NOTE: Сделать метод pubback и подсистему pool pubback. При отсылании события в pubback из пула обрабтки хэндлеров пробрасывать туда токен вызвашего обработку события и его тип в целях недопущения бесконечных циклов (хэндлер вызывает паббэк -> паббэк кладет событие -> слобытие триггерит хэндлер)
                 if isinstance(result, TyEv.BUS_ERROR.value):
                     callback_events.append(result)
+
+        try:
+            event.token.complete()
+        except CannotComplete:
+            pass
 
         return callback_events
 
@@ -231,6 +241,8 @@ class ThreadOrchestrator:
     def _handle_processing_error(
         self, handler: Callable, event: Event, e: Exception
     ) -> Optional[Event]:
+        event.token.error()
+
         handler_error_event = TyEv.BUS_ERROR(
             kwargs={
                 "txt": f"Ошибка через шину.\nСобытие: {event}.\nОшибка обработчика: {Handler.get_handler_name(handler)}: {type(e).__name__} - {e}",
