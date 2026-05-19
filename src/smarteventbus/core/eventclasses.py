@@ -140,18 +140,28 @@ class Event(EventParent, BaseModel):
         if not isinstance(other, Event):
             return NotImplemented
 
-        return (self.priority, self.priority_counter) == (
+        return (
+            self.priority,
+            self.priority_counter,
+            self._event_number,
+        ) == (
             other.priority,
             other.priority_counter,
+            other._event_number,
         )
 
     def __lt__(self, other: object) -> bool:
         if not isinstance(other, Event):
             return NotImplemented
 
-        return (self.priority, self.priority_counter) < (
+        return (
+            self.priority,
+            self.priority_counter,
+            self._event_number,
+        ) < (
             other.priority,
             other.priority_counter,
+            other._event_number,
         )
 
     def make_valid(self) -> None:

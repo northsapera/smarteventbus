@@ -15,11 +15,12 @@
 """Event queue based on heapq with complex event interaction logic."""
 
 import heapq
+import itertools
 import queue
 import threading
 import warnings
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 
 from .config import STACKLEVEL, debug_mode
 from .custexceptions import (
@@ -80,6 +81,8 @@ class UniquePriorityQueue:
         self._satellite = self.Satellite(ids={}, ids_valid={}, names={}, nums={})
         """Сопровождающий словарь"""
 
+        self._queue_counter = itertools.count()
+
         self.inspection = self.Inspection()
 
     # region queue interaction
@@ -116,18 +119,20 @@ class UniquePriorityQueue:
     def put(self, event: Event) -> None:
         self.inspection.total_puts()
 
+        mapping: dict = {
+            UniqType.NONE: self._bare_extra,
+            UniqType.WAIT: self._waiting_extra,
+            UniqType.REPLACE: self._replacing_extra,
+        }
+
         try:
-            if event.uniq_type == UniqType.NONE:
-                self._bare_extra(event)
+            func: Callable | None = mapping.get(event.uniq_type, None)
 
-            elif event.uniq_type == UniqType.WAIT:
-                self._waiting_extra(event)
-
-            elif event.uniq_type == UniqType.REPLACE:
-                self._replacing_extra(event)
-
-            else:
+            if func is None:
                 raise UnknownUniqType("Unknown unique logic type received!")
+
+            event.priority_counter = next(self._queue_counter)
+            func(event)
 
             heapq.heappush(self._queue, event)
 
@@ -160,8 +165,7 @@ class UniquePriorityQueue:
 
             _old_event = _events_list[idx]
 
-            _old_event.make_nonvalid()
-            self._remove_nonvalid_fron_satellite(_old_event)
+            self.devalid_event(_old_event)
 
             event.priority_counter = _old_event.priority_counter
 
@@ -171,14 +175,16 @@ class UniquePriorityQueue:
 
     def _add_to_satellite(self, event: Event) -> None:
         id_group = self._satellite.ids.setdefault(event.id, {})
-        id_valid_group = self._satellite.ids_valid.setdefault(event.id, {})
-        names_group = self._satellite.names.setdefault(event.name, {})
-        nums_group = self._satellite.nums
-
         id_group[event.num] = event
+
         if event.is_valid:
+            id_valid_group = self._satellite.ids_valid.setdefault(event.id, {})
             id_valid_group[event.num] = event
+
+        names_group = self._satellite.names.setdefault(event.name, {})
         names_group[event.num] = event
+
+        nums_group = self._satellite.nums
         nums_group[event.num] = event
 
     # endregion put
@@ -367,14 +373,14 @@ class UniquePriorityQueue:
         Notes:
             Событие кладется в очередь через метод .put().
         """
-        old_event.make_nonvalid()
+        self.devalid_event(old_event)
 
         new_event.priority_counter = old_event.priority_counter
 
         self.put(new_event)
 
     def devalid_event(self, event: Event) -> None:
-        """Девалидизация заданного события, используется только для ручной девалидизации.
+        """Девалидизация заданного события.
 
         Args:
             event (Event): Событие.
@@ -411,7 +417,7 @@ class UniquePriorityQueue:
             >>> _queue.put(TyEv.CANCEL(meta={"window": "main"}, kwargs={'button': 1}))
             >>> e = TyEv.CANCEL(name="CANCEL", meta={"window": "main"}, kwargs={'button': 2})
             >>> _queue.put(e)
-            >>> e.make_nonvalid()
+            >>> _queue.devalid_event(e)
 
             Получение отчета:
             >>> _queue.info # doctest: +ELLIPSIS
