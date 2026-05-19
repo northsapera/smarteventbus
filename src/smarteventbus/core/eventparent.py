@@ -47,8 +47,9 @@ class TokenState(IntEnum):
     DEVALIDED_AFTER_WRITE_TRYING = 101
     DEVALIDED_AFTER_READ_TRYING = 102
     DEVALIDED_AFTER_HANDLER_ERROR = 103
-    DEVALIDED_AFTER_FINISH_TRYING = 104
-    DEVALIDED_GENERIC = 105
+    DEVALIDED_BY_QUEUE = 104
+    DEVALIDED_AFTER_FINISH_TRYING = 105
+    DEVALIDED_GENERIC = 106
 
     MANUALLY_DEVALIDED = 1000
 
@@ -77,6 +78,11 @@ class EventToken:
                 raise RePublishing(
                     "The event has already been published or is non-valide! Use the '.duble()' for the event object."
                 )
+
+    def drop_by_queue(self) -> None:
+        with self._lock:
+            self._state = TokenState.DEVALIDED_BY_QUEUE
+            self._content = None
 
     def read_content(self) -> FlatDict:
         with self._lock:

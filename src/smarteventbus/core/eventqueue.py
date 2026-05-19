@@ -203,6 +203,7 @@ class UniquePriorityQueue:
             self._remove_from_satellite(event)
 
             if not event.is_valid_for_queue:
+                event.token.drop_by_queue()
                 self.inspection.nonvalid_events_gotten()
 
                 if debug_mode.is_set():
