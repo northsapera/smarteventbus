@@ -1,4 +1,4 @@
-![Python Version](https://img.shields.io/badge/python-3.10%2B-darkblue?style=flat-square) ![License](https://img.shields.io/badge/license-Apache%202.0-darkgreen?style=flat-square) ![Status](https://img.shields.io/badge/status-beta-yellow?style=flat-square)
+![Python Version](https://img.shields.io/badge/python-3.11%2B-darkblue?style=flat-square) ![License](https://img.shields.io/badge/license-Apache%202.0-darkgreen?style=flat-square) ![Status](https://img.shields.io/badge/status-beta-yellow?style=flat-square)
 # Smart Event Bus
 ## Краткое описание
 Эта шина событий создана для **безопасного** управления *событиями* с ориентированием на **многопоточную** среду. Работает по принципу *издатель-шина-подписчик*.
