@@ -81,6 +81,8 @@ class Handler(BaseModel):
     strict_order: bool = Field(default=True)
     context: str = Field(default=ThreadType.POOL)
 
+    allow_pubback: bool = Field(default=True)
+
     _has_kwargs: bool = PrivateAttr(default=False)
     _mask_params: set[str] = PrivateAttr(default_factory=set[str])
 
@@ -128,6 +130,7 @@ class Handler(BaseModel):
     def _run(self, *args, **kwargs) -> Any:
         if self._is_async:
             return self._run_async(*args, **kwargs)
+
         try:
             return self.func(*args, **kwargs)
         except TypeError as e:
@@ -138,7 +141,8 @@ class Handler(BaseModel):
 
     async def _run_async(self, *args, **kwargs) -> Any:
         try:
-            return await self.func(*args, **kwargs)
+            result = await self.func(*args, **kwargs)
+            return result
         except TypeError as e:
             e.add_note(
                 "If func got multiple values for argument, сheck for mixing positional and named arguments in handler calling."

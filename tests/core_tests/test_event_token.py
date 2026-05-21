@@ -3,12 +3,7 @@ from threading import Thread
 
 # Предполагается, что ваш код лежит в файле token_module.py
 # Скорректируйте импорт под вашу структуру проекта:
-from smarteventbus import (
-    CannotComplete,
-    FlatDict,
-    RePublishing,
-    UnReadToken,
-)
+from smarteventbus import CannotComplete, FlatDict, PubType, RePublishing, UnReadToken
 from smarteventbus.core.eventparent import EventToken, TokenState
 
 
@@ -27,14 +22,14 @@ class TestEventTokenLifecycle(unittest.TestCase):
 
         # 2. Write content -> In Queue
         test_data = FlatDict(event_id=42, payload="data")
-        token.write_content(test_data)
+        token.write_content(type=PubType.NONE, content=test_data, history=[1])
         self.assertEqual(token.state_num, TokenState.IN_QUEUE)
         self.assertEqual(token._content, test_data)
 
         # 3. Read content -> In Work
         read_data = token.read_content()
         self.assertEqual(token.state_num, TokenState.IN_WORK)
-        self.assertEqual(read_data, test_data)
+        self.assertEqual(read_data, {"type": PubType.NONE, "content": test_data})
         self.assertIsNone(token._content)  # СХЕМА: Контент должен занулиться!
 
         # 4. Complete -> Successfully Completed
@@ -45,11 +40,15 @@ class TestEventTokenLifecycle(unittest.TestCase):
     def test_devalided_after_write_trying(self):
         """Проверка повторной записи (Re-publishing attempt -> 101)"""
         token = EventToken()
-        token.write_content(FlatDict(key="first"))
+        token.write_content(
+            type=PubType.NONE, content=FlatDict(key="first"), history=[1]
+        )
 
         # Пытаемся записать второй раз в токен, который уже в очереди
         with self.assertRaises(RePublishing):
-            token.write_content(FlatDict(key="second"))
+            token.write_content(
+                type=PubType.NONE, content=FlatDict(key="second"), history=[1]
+            )
 
         self.assertEqual(token.state_num, TokenState.DEVALIDED_AFTER_WRITE_TRYING)
         self.assertIsNone(token._content)  # СХЕМА: Clear Content
@@ -67,7 +66,9 @@ class TestEventTokenLifecycle(unittest.TestCase):
     def test_devalided_after_handler_error(self):
         """Проверка фиксации ошибки воркера (Execution error -> 103)"""
         token = EventToken()
-        token.write_content(FlatDict(key="data"))
+        token.write_content(
+            type=PubType.NONE, content=FlatDict(key="data"), history=[1]
+        )
         token.read_content()  # Перевели в IN_WORK
 
         # Симулируем ошибку внутри обработчика
@@ -89,7 +90,9 @@ class TestEventTokenLifecycle(unittest.TestCase):
     def test_manually_devalided(self):
         """Проверка принудительного вызова devalid() -> 1000"""
         token = EventToken()
-        token.write_content(FlatDict(key="secret"))
+        token.write_content(
+            type=PubType.NONE, content=FlatDict(key="secret"), history=[1]
+        )
 
         token.devalid()
 
@@ -99,7 +102,9 @@ class TestEventTokenLifecycle(unittest.TestCase):
     def test_thread_safety_basic(self):
         """Базовая проверка потокобезопасности при одновременном чтении"""
         token = EventToken()
-        token.write_content(FlatDict(secure="payload"))
+        token.write_content(
+            type=PubType.NONE, content=FlatDict(secure="payload"), history=[1]
+        )
 
         results = []
 

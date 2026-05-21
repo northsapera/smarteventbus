@@ -47,12 +47,16 @@ class SearchType(str, Enum):
 class PubType(str, Enum):
     """Виды логики публикации событий"""
 
+    NONE = "NONE"
+    """Еще не было в череди"""
     PUBLISH = "PUBLISH"
     """Чистая отправка в шину"""
     CALL = "CALL"
     """Ожидание результата"""
     FORWARD = "FORWARD"
     """Проброс функции"""
+    PUBBACK = "PUBBACK"
+    """Обратная публикация события"""
 
 
 class SubscribeType(str, Enum):

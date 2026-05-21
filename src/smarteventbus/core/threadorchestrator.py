@@ -18,22 +18,32 @@ import asyncio
 import inspect
 import threading
 import warnings
+from collections.abc import Iterable
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
+from ..utils.flatten import FlatDict
 from .config import STACKLEVEL
 from .custexceptions import (
-    CannotComplete,
+    CannotEnd,
     ExecutorError,
     ExecutorInitError,
+    PotentialLoop,
     ThreadingsError,
     UnknownExecutorConfig,
 )
-from .custwarnings import ExecutorWarning, HandlerWarning, UnpredictableBusWarning
+from .custwarnings import (
+    ExecutorWarning,
+    HandlerWarning,
+    PotentialLoopWarning,
+    UnpredictableBusWarning,
+)
 from .eventclasses import Event, TyEv
+from .eventparent import TokenContext
 from .handlerclasses import Handler
 from .logictypes import ThreadType
+from .publishback import PubBackPool
 
 
 class AsyncLoopExecutor:
@@ -101,9 +111,11 @@ class ThreadOrchestrator:
 
     def __init__(
         self,
+        pubback_pool: PubBackPool,
         maxworkers_sync: Optional[int] = None,
     ):
         self._max_workers_sync = maxworkers_sync
+        self._pubback_pool = pubback_pool
 
         self._lock = threading.Lock()
 
@@ -180,89 +192,131 @@ class ThreadOrchestrator:
 
         for handler in handlers_to_call:
             handler_context = getattr(handler, "execution_context", ThreadType.POOL)
-
             is_async = getattr(
                 handler, "is_async", inspect.iscoroutinefunction(handler)
             )
             strict_order = getattr(handler, "strict_order", True)
 
             executor = self._get_executor_for_context(
-                context=handler_context, is_async=is_async, handler=handler
+                context=handler_context,
+                is_async=is_async,
+                handler=handler,
             )
 
-            future = executor.submit(self._run_handler, handler, event)
+            if not is_async:
+                future = executor.submit(
+                    self._run_sync_handler,
+                    handler=handler,
+                    event=event,
+                    event_context=event_context,
+                )
+            else:
+                future = executor.submit(
+                    self._run_async_handler,
+                    handler=handler,
+                    event=event,
+                    event_context=event_context,
+                )
 
             if strict_order:
                 try:
                     result = future.result()
                 except Exception as e:
                     warnings.warn(
-                        f"[EventBus] Infrastructure strict wait failed: {e}",
+                        f"Bus infrastructure strict wait failed: {e}",
                         UnpredictableBusWarning,
                     )
 
-                results.append(
-                    result
-                )  # TODO: Добавить возможность коллбэчить любые возвращаемые события (сделать легко, но надо добавить возможность отключать эту функцию через настройки хэндлера)
-                # NOTE: Сделать метод pubback и подсистему pool pubback. При отсылании события в pubback из пула обрабтки хэндлеров пробрасывать туда токен вызвашего обработку события и его тип в целях недопущения бесконечных циклов (хэндлер вызывает паббэк -> паббэк кладет событие -> слобытие триггерит хэндлер)
+                results.append(result)
                 if isinstance(result, TyEv.BUS_ERROR.value):
                     callback_events.append(result)
 
         try:
             event.token.complete()
-        except CannotComplete:
+        except CannotEnd:
             pass
 
         return callback_events
 
-    def _run_handler(self, handler: Handler | Callable, event: Event) -> Any:
-        """
-        Выполняется внутри целевого экзекутора.
-        Универсально вызывает как голые функции, так и объекты Handler.
-        """
+    def _run_sync_handler(
+        self, handler: Handler | Callable, event: Event, event_context: TokenContext
+    ) -> Any:
         try:
             result = handler(*event.args, **event.kwargs)
+            self._events_to_pool(result, handler, event, event_context)
 
-            if inspect.iscoroutine(result):
+            return result
+        except Exception as e:
+            self._handle_processing_error(handler, event, e, event_context)
 
-                async def async_error_wrapper(coro):
-                    try:
-                        return await coro
-                    except Exception as ax_e:
-                        return self._handle_processing_error(handler, event, ax_e)
-
-                return async_error_wrapper(result)
+    async def _run_async_handler(
+        self, handler: Handler | Callable, event: Event, event_context: TokenContext
+    ) -> Any:
+        try:
+            result = await handler(*event.args, **event.kwargs)
+            self._events_to_pool(result, handler, event, event_context)
 
             return result
 
         except Exception as e:
-            return self._handle_processing_error(handler, event, e)
+            return self._handle_processing_error(handler, event, e, event_context)
+
+    def _events_to_pool(
+        self,
+        result: Any,
+        handler: Handler | Callable,
+        event: Event,
+        event_context: TokenContext,
+    ) -> Any:
+        """
+        Обратная отправка в пул событий из полученного результата.
+        """
+        if (isinstance(handler, Handler) and handler.allow_pubback) or not isinstance(
+            handler, Handler
+        ):
+            if isinstance(result, Event):
+                self._pubback_pool.pubback(result, event_context)
+            elif isinstance(result, Iterable) and not isinstance(result, (str, bytes)):
+                items = result.values() if isinstance(result, dict) else result
+                for x in items:
+                    if isinstance(x, Event):
+                        self._pubback_pool.pubback(x, event_context)
 
     def _handle_processing_error(
-        self, handler: Callable, event: Event, e: Exception
-    ) -> Optional[Event]:
+        self,
+        handler: Callable,
+        event: Event,
+        e: Exception,
+        failed_event_context: TokenContext,
+    ) -> None:
         event.token.error()
 
         handler_error_event = TyEv.BUS_ERROR(
+            meta=FlatDict(source="bus", type="handler"),
             kwargs={
                 "txt": f"Ошибка через шину.\nСобытие: {event}.\nОшибка обработчика: {Handler.get_handler_name(handler)}: {type(e).__name__} - {e}",
-            }
+            },
         )
 
-        if event.id != handler_error_event.id:
+        if isinstance(e, PotentialLoop):
+            warnings.warn(
+                f"Handler '{Handler.get_handler_name(handler)}' on event (type='{event.type}', name='{event.name}', meta='{event.meta}') ended with potential pubback loop error: {type(e).__name__} - {e}",
+                PotentialLoopWarning,
+                stacklevel=STACKLEVEL,
+            )
+        else:
             warnings.warn(
                 f"Handler '{Handler.get_handler_name(handler)}' on event (type='{event.type}', name='{event.name}', meta='{event.meta}') ended with error: {type(e).__name__} - {e}",
                 HandlerWarning,
                 stacklevel=STACKLEVEL,
             )
 
-            return handler_error_event
+        try:
+            self._pubback_pool.pubback_error(handler_error_event, failed_event_context)
 
-        else:
+        except PotentialLoop:
             warnings.warn(
-                f"Bus error event (name='{event.name}', id={event.id}, num={event.num}) is ended with error! Error: {type(e).__name__} - {e}",
-                UnpredictableBusWarning,
+                f"Bus error event (name='{event.name}', id={event.id}, num={event.num}) with token history '{failed_event_context['history']}' wasn't added to the pubback pool! Error: {type(e).__name__} - {e}",
+                PotentialLoopWarning,
                 stacklevel=STACKLEVEL,
             )
-
-            return None

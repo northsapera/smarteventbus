@@ -44,6 +44,7 @@ from .core.eventorchestrator import QueueOrchestrator
 from .core.eventqueue import UniquePriorityQueue
 from .core.handlerclasses import Handler
 from .core.logictypes import PubType, SubscribeType, ThreadType, UniqType
+from .core.publishback import PubBackPool
 from .core.subscriptionorchestrator import SubscriptionOrchestrator
 from .core.threadorchestrator import ThreadOrchestrator
 from .utils.flatten import FlatDict
@@ -58,9 +59,12 @@ class EventBus:
     def __init__(
         self, maxsize: int = 0, maxworkers: Optional[int] = None, paused: bool = False
     ):
+        self._pubback_pool = PubBackPool()
         self._queueorch = QueueOrchestrator(maxsize=maxsize)
         self._suborch = SubscriptionOrchestrator()
-        self._threadorch = ThreadOrchestrator(maxworkers_sync=maxworkers)
+        self._threadorch = ThreadOrchestrator(
+            pubback_pool=self._pubback_pool, maxworkers_sync=maxworkers
+        )
 
         self._stop_flag = threading.Event()
         self._can_running_flag = threading.Event()
@@ -227,7 +231,9 @@ class EventBus:
             >>> bus.stop()
 
         """
-        event.token.write_content(FlatDict(type=PubType.PUBLISH))
+        event.token.write_content(
+            type=PubType.PUBLISH, content=FlatDict(), history=(0, event.id)
+        )
         self._queueorch.put(event, event.timeout, event.block)
 
     def _dispatch(self):
@@ -245,26 +251,12 @@ class EventBus:
 
                 handlers_to_call = self._suborch.get_handlers_snapshot(event)
 
-                callback_events: list[Event] | None = self._threadorch.iter_handlers(
-                    handlers_to_call, event
-                )
-
-                if callback_events:
-                    for callback_event in callback_events:
-                        try:
-                            self.publish(callback_event)
-
-                        except QueueFull:
-                            warnings.warn(
-                                f"Bus event (type='{event.type}', name='{event.name}', id='{event.id}', num='{event.num}') did not added to the queue! Queue is full!",
-                                QueueFullWarning,
-                                stacklevel=STACKLEVEL,
-                            )
+                self._threadorch.iter_handlers(handlers_to_call, event)
 
                 # self._queue.task_done()
 
             except QueueEmpty:
-                continue
+                pass
 
             except QueueReset:
                 return
@@ -274,7 +266,24 @@ class EventBus:
 
                 raise
 
+            callback_events: list[Event] = self._pubback_pool.extract()
+
+            if callback_events:
+                for callback_event in callback_events:
+                    self._pubback_pool_to_queue(callback_event)
+
         self._on_air_flag.clear()
+
+    def _pubback_pool_to_queue(self, callback_event: Event):
+        try:
+            self._queueorch.put_no_wait(callback_event)
+
+        except QueueFull:
+            warnings.warn(
+                f"Bus event (type='{callback_event.type}', name='{callback_event.name}', id='{callback_event.id}', num='{callback_event.num}') did not published back to the queue! Queue is full!",
+                QueueFullWarning,
+                stacklevel=STACKLEVEL,
+            )
 
     def clean_queue(self, *args, **kwargs):
         self._queueorch.clean_queue()
@@ -313,6 +322,7 @@ class EventBus:
         report = {
             "subscribers": self._suborch.info,
             "queue_info": self._queueorch.info,
+            "pubback_info": self._pubback_pool.info,
         }
 
         return report

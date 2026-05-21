@@ -21,7 +21,7 @@ from smarteventbus import (
 
 
 def test_stress_run():
-    bus = EventBus(maxsize=1000, paused=False)
+    bus = EventBus(maxsize=6000, paused=False)
     bus.start()
 
     # Счётчики для проверки
@@ -59,13 +59,13 @@ def test_stress_run():
     bus.subscribe(TyEv.BUS_ERROR, error_catcher)
 
     # Обернем в Handler
-    bus.subscribe("heavy_load", Handler(func=sync_worker))
+    bus.subscribe("heavy_load", Handler(func=sync_worker, strict_order=False))
     bus.subscribe(
         "heavy_load",
         Handler(
             func=async_worker,
             context=ThreadType.POOL,
-            strict_order=True,
+            strict_order=False,
         ),
     )
 
@@ -80,7 +80,7 @@ def test_stress_run():
 
     threads = []
     # Создаем n параллельных потоков-продюсеров, которые одновременно забьют шину
-    n = 5
+    n = 100
     for num in range(n):
         t = threading.Thread(target=producer, args=(num * 50, 50))
         threads.append(t)
@@ -92,12 +92,12 @@ def test_stress_run():
     print("📥 Все события отправлены в очередь. Ждем обработки...")
 
     # Даем шине время разгрести завалы
-    time.sleep(5)
+    time.sleep(8)
 
     # Проверяем отчет самого оркестратора
     report = bus.report()
 
-    print(json.dumps(report["queue_info"], indent=4))
+    print(json.dumps(report, indent=4))
 
     print("\n--- Результаты стресс-теста ---")
     print(f"Всего должно быть обработано задач: {100 * n}")

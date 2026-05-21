@@ -60,5 +60,9 @@ class NonValidEventWarning(EventWarning):
     pass
 
 
+class PotentialLoopWarning(EventWarning):
+    pass
+
+
 class HandlerWarning(BusWarning):
     pass

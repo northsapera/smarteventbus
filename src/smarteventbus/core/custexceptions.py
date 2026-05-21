@@ -104,7 +104,11 @@ class UnReadToken(EventError):
     pass
 
 
-class CannotComplete(EventError):
+class CannotEnd(EventError):
+    pass
+
+
+class PotentialLoop(EventError):
     pass
 
 

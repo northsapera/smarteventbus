@@ -16,19 +16,20 @@
 Smart Event Bus: A thread-safe event bus library for Python.
 """
 
-__version__ = "0.11.1"
+__version__ = "0.12.0"
 __author__ = "Matvey Grigoryev"
 
 from .core.config import debug_mode
 from .core.custexceptions import (
     BusError,
     BusTypeError,
-    CannotComplete,
+    CannotEnd,
     EventError,
     ExecutorError,
     ExecutorInitError,
     HandlerError,
     NonValidEvent,
+    PotentialLoop,
     QueueEmpty,
     QueueError,
     QueueFull,
@@ -52,6 +53,7 @@ from .core.custwarnings import (
     ExecutorWarning,
     HandlerWarning,
     NonValidEventWarning,
+    PotentialLoopWarning,
     PuttingFailedWarning,
     QueueFullWarning,
     QueueResetWarning,
@@ -62,7 +64,14 @@ from .core.custwarnings import (
 )
 from .core.eventclasses import Event, TyEv
 from .core.handlerclasses import Handler
-from .core.logictypes import ExitType, SearchType, SubscribeType, ThreadType, UniqType
+from .core.logictypes import (
+    ExitType,
+    PubType,
+    SearchType,
+    SubscribeType,
+    ThreadType,
+    UniqType,
+)
 from .eventbus import BusNetwork, EventBus, bus
 from .utils.flatten import FlatDict, check_flat
 
@@ -78,6 +87,7 @@ __all__ = [
     "debug_mode",
     # Logic types
     "ExitType",
+    "PubType",
     "SearchType",
     "SubscribeType",
     "ThreadType",
@@ -88,12 +98,13 @@ __all__ = [
     # Exceptions
     "BusError",
     "BusTypeError",
-    "CannotComplete",
+    "CannotEnd",
     "EventError",
     "ExecutorError",
     "ExecutorInitError",
     "HandlerError",
     "NonValidEvent",
+    "PotentialLoop",
     "QueueEmpty",
     "QueueError",
     "QueueFull",
@@ -116,6 +127,7 @@ __all__ = [
     "ExecutorWarning",
     "HandlerWarning",
     "NonValidEventWarning",
+    "PotentialLoopWarning",
     "PuttingFailedWarning",
     "QueueFullWarning",
     "QueueResetWarning",

@@ -86,6 +86,8 @@ class Event(EventParent, BaseModel):
     block: bool = Field(default=True)
     timeout: float | None = Field(default=None)
 
+    pubback_ttl: int = Field(default=6)
+
     def model_post_init(self, context: Any) -> None:
         super().model_post_init(context)
         self.refresh()
@@ -329,7 +331,7 @@ class Event(EventParent, BaseModel):
 class BUS_ERROR_EVENT(Event):
     name: str = Field(default="ERROR")
     meta: FlatDict = Field(
-        default_factory=lambda: FlatDict(source="bus", type="handler")
+        default_factory=lambda: FlatDict(source="bus", type="general")
     )
     kwargs: dict[str, Any] = Field(
         default_factory=lambda: {"txt": "Ошибка через шину. Ошибка в обработчике."}

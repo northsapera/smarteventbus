@@ -20,9 +20,11 @@ import itertools
 from dataclasses import dataclass, field
 from enum import IntEnum
 from threading import Lock
+from typing import TypedDict
 
 from ..utils.flatten import FlatDict
-from .custexceptions import CannotComplete, RePublishing, UnReadToken
+from .custexceptions import CannotEnd, RePublishing, UnReadToken
+from .logictypes import PubType
 
 
 class EventParent:
@@ -36,6 +38,12 @@ class EventParent:
         hash_digest = hashlib.md5(raw_key.encode("utf-8")).hexdigest()
 
         return int(hash_digest, 16) & ((1 << 128) - 1)
+
+
+class TokenContext(TypedDict):
+    type: PubType
+    content: FlatDict
+    history: tuple
 
 
 class TokenState(IntEnum):
@@ -65,12 +73,19 @@ class EventToken:
     _lock: Lock = field(default_factory=lambda: Lock(), init=False)
 
     _state: TokenState = field(default=TokenState.INITIALIZED, init=False)
+    _type: PubType = field(default=PubType.NONE, init=False)
     _content: FlatDict | None = field(default=None, init=False)
 
-    def write_content(self, content: FlatDict) -> None:
+    _history: tuple[int, ...] = field(default_factory=tuple, init=False)
+
+    def write_content(
+        self, type: PubType, content: FlatDict, history: tuple[int, ...]
+    ) -> None:
         with self._lock:
             if self._state == TokenState.INITIALIZED:
+                self._type = type
                 self._content = copy.copy(content)
+                self._history = history
                 self._state = TokenState.IN_QUEUE
             else:
                 self._content = None
@@ -84,13 +99,17 @@ class EventToken:
             self._state = TokenState.DEVALIDED_BY_QUEUE
             self._content = None
 
-    def read_content(self) -> FlatDict:
+    def read_content(self) -> TokenContext:
         with self._lock:
             if self._state == TokenState.IN_QUEUE:
                 self._state = TokenState.IN_WORK
                 result = copy.copy(self._content)
                 self._content = None
-                return result if result else FlatDict()
+                return TokenContext(
+                    type=self._type,
+                    content=result if result else FlatDict(),
+                    history=self._history,
+                )
             else:
                 self._content = None
                 self._state = TokenState.DEVALIDED_AFTER_READ_TRYING
@@ -104,17 +123,17 @@ class EventToken:
             else:
                 self._content = None
                 self._state = TokenState.DEVALIDED_AFTER_FINISH_TRYING
-                raise CannotComplete("The event cannot be completed at this stage!")
+                raise CannotEnd("The event cannot be completed at this stage!")
 
     def error(self) -> None:
         with self._lock:
-            if self._state == TokenState.IN_WORK:
+            if self._state >= 2:
                 self._content = None
                 self._state = TokenState.DEVALIDED_AFTER_HANDLER_ERROR
             else:
                 self._content = None
                 self._state = TokenState.DEVALIDED_AFTER_FINISH_TRYING
-                raise CannotComplete("The event cannot be completed at this stage!")
+                raise CannotEnd("The event cannot be completed at this stage!")
 
     def devalid(self) -> None:
         with self._lock:

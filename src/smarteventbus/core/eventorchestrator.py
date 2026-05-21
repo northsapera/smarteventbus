@@ -66,7 +66,7 @@ class QueueOrchestrator:
 
             if self._reset:
                 warnings.warn(
-                    f"Query reset, event {event} was rejected.", QueueResetWarning
+                    f"Query reset, event {event.name} was rejected.", QueueResetWarning
                 )
                 return
 
@@ -78,6 +78,11 @@ class QueueOrchestrator:
 
                 if event.wait_timeout_exit == ExitType.REJECT:
                     self._queue.inspection.wait_errors_amount()
+                    if _no_wait:
+                        raise QueueFull(
+                            f"The event '{event.name}' was rejected by full queue!"
+                        )
+
                     raise WaitTimeoutError(
                         f"The WAIT logic event '{event.name}' was rejected by timeout ({timeout})!"
                     )
