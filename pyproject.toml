@@ -10,7 +10,7 @@ where = ["src"]
 
 [project]
 name = "smarteventbus"
-version = "0.12.0"
+version = "0.13.0"
 authors = [
   { name="Matvey Aleksandrovich Grigoryev", email="dagrmaeiui@gmail.com" },
 ]

@@ -20,11 +20,14 @@ import queue
 import threading
 import time
 import warnings
+from concurrent.futures import Future
+from concurrent.futures import TimeoutError as FutureTimeoutError
 from enum import Enum
 from typing import Any, Callable, Optional
 
 from .core.config import STACKLEVEL
 from .core.custexceptions import (
+    CallTimeoutError,
     QueueEmpty,
     QueueFull,
     QueueReset,
@@ -85,7 +88,7 @@ class EventBus:
         | int,  # NOTE: Перевести на любой Enum (сделано?)
         handlers: Callable | Handler | list[Callable | Handler],
         subscribe_type: SubscribeType = SubscribeType.NAME,
-    ):
+    ):  # TODO: Сделать принудительную регистрацию в Handler
         """Оформление подписки на событие. Варианты подписки: по имени события (сигнал), по id (тип, имя, метаданные), по порядковому номеру. Хэндлеры активируются последовательно в порядке передачи.
 
         Args:
@@ -235,6 +238,23 @@ class EventBus:
             type=PubType.PUBLISH, content=FlatDict(), history=(0, event.id)
         )
         self._queueorch.put(event, event.timeout, event.block)
+
+    def call(self, event: Event, timeout: float = 10):
+        future = Future()
+
+        event.token.write_content(
+            type=PubType.CALL,
+            content=FlatDict(future=future, timeout=timeout),
+            history=(1, event.id),
+        )
+        self._queueorch.put(event, event.timeout, event.block)
+
+        try:
+            result = future.result(timeout=timeout)
+        except FutureTimeoutError:
+            raise CallTimeoutError("The call() method timed out!")
+
+        return result
 
     def _dispatch(self):
         """Внутренний цикл обработки событий"""

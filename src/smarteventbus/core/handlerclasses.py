@@ -72,13 +72,16 @@ class Handler(BaseModel):
         use_enum_values=True,
     )
 
-    _id: int = PrivateAttr(default=-1)
+    _id: int = PrivateAttr(
+        default=-1
+    )  # TODO: Внимательно просмотреть атрибуты на предмет необходимости защитить от изменяемости
 
     func: Callable
     default_kwargs: dict = Field(default_factory=dict)
     force_kwargs: dict = Field(default_factory=dict)
 
     strict_order: bool = Field(default=True)
+    strict_order_timeout: float = Field(default=10)
     context: str = Field(default=ThreadType.POOL)
 
     allow_pubback: bool = Field(default=True)

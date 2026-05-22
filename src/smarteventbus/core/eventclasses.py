@@ -61,7 +61,9 @@ class Event(EventParent, BaseModel):
     )
 
     # Паспорт события
-    _event_id: int = PrivateAttr(default=-1)
+    _event_id: int = PrivateAttr(
+        default=-1
+    )  # TODO: Внимательно просмотреть атрибуты на предмет необходимости защитить от изменяемости
     _event_number: int = PrivateAttr(
         default_factory=lambda: next(EventParent._counter_iterator)
     )
@@ -73,7 +75,9 @@ class Event(EventParent, BaseModel):
     name: str
     meta: FlatDict = Field(default_factory=FlatDict, exclude=True)
     args: tuple[Any,] = Field(default_factory=tuple[Any,])
-    kwargs: dict[str, Any] = Field(default_factory=dict[str, Any])
+    kwargs: dict[str, Any] = Field(
+        default_factory=dict[str, Any]
+    )  # TODO: Сделать копирование при инициализации и превращение в MappingProxyType
 
     # Поведение в очереди
     priority: int = Field(default=100)

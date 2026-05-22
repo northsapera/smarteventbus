@@ -16,13 +16,14 @@
 Smart Event Bus: A thread-safe event bus library for Python.
 """
 
-__version__ = "0.12.0"
+__version__ = "0.13.0"
 __author__ = "Matvey Grigoryev"
 
 from .core.config import debug_mode
 from .core.custexceptions import (
     BusError,
     BusTypeError,
+    CallTimeoutError,
     CannotEnd,
     EventError,
     ExecutorError,
@@ -98,6 +99,7 @@ __all__ = [
     # Exceptions
     "BusError",
     "BusTypeError",
+    "CallTimeoutError",
     "CannotEnd",
     "EventError",
     "ExecutorError",

@@ -17,15 +17,18 @@
 import asyncio
 import inspect
 import threading
+import time
 import warnings
 from collections.abc import Iterable
 from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeoutError
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
 from ..utils.flatten import FlatDict
 from .config import STACKLEVEL
 from .custexceptions import (
+    CallTimeoutError,
     CannotEnd,
     ExecutorError,
     ExecutorInitError,
@@ -42,7 +45,7 @@ from .custwarnings import (
 from .eventclasses import Event, TyEv
 from .eventparent import TokenContext
 from .handlerclasses import Handler
-from .logictypes import ThreadType
+from .logictypes import PubType, ThreadType
 from .publishback import PubBackPool
 
 
@@ -183,12 +186,11 @@ class ThreadOrchestrator:
 
     def iter_handlers(
         self, handlers_to_call: list[Handler | Callable], event: Event
-    ) -> list[Event]:
-        result: Any = None
-        results: list[Any] = []
-        callback_events: list[Event] = []
+    ) -> None:
+        _futures: list[Future] = []
 
         event_context = event.token.read_content()
+        pub_type = event_context["type"]
 
         for handler in handlers_to_call:
             handler_context = getattr(handler, "execution_context", ThreadType.POOL)
@@ -218,39 +220,61 @@ class ThreadOrchestrator:
                     event_context=event_context,
                 )
 
+            _futures.append(future)
+
             if strict_order:
                 try:
-                    result = future.result()
+                    result = future.result(
+                        timeout=getattr(handler, "strict_order_timeout", 10)
+                    )  # FIXME: Пока так, затем введу обязательную регистрацию и может поменяю
                 except Exception as e:
                     warnings.warn(
                         f"Bus infrastructure strict wait failed: {e}",
                         UnpredictableBusWarning,
                     )
 
-                results.append(result)
-                if isinstance(result, TyEv.BUS_ERROR.value):
-                    callback_events.append(result)
+        # Если тип публикации - call, все фьючеры собираются в один список и отправляются в менеджер, который в отдельном потоке дождется завершения всех и отправит в переданный фьючер паблишера
+        if pub_type == PubType.CALL:
+            call_future: Future | None = event_context["content"].get("future", None)
+            call_timeout: float = event_context["content"].get("timeout", 10)
+
+            if call_future:
+                call_executor = self._get_executor_for_context(
+                    ThreadType.DEDICATED, False, self._call_manager
+                )
+                call_executor.submit(
+                    self._call_manager,
+                    call_future=call_future,
+                    _futures_list=_futures,
+                    call_timeout=call_timeout,
+                )
 
         try:
             event.token.complete()
         except CannotEnd:
             pass
 
-        return callback_events
-
     def _run_sync_handler(
-        self, handler: Handler | Callable, event: Event, event_context: TokenContext
+        self,
+        handler: Handler | Callable,
+        event: Event,
+        event_context: TokenContext,
     ) -> Any:
         try:
             result = handler(*event.args, **event.kwargs)
             self._events_to_pool(result, handler, event, event_context)
 
             return result
+
         except Exception as e:
             self._handle_processing_error(handler, event, e, event_context)
+            return e
 
     async def _run_async_handler(
-        self, handler: Handler | Callable, event: Event, event_context: TokenContext
+        self,
+        handler: Handler | Callable,
+        event: Event,
+        event_context: TokenContext,
     ) -> Any:
         try:
             result = await handler(*event.args, **event.kwargs)
@@ -259,7 +283,8 @@ class ThreadOrchestrator:
             return result
 
         except Exception as e:
-            return self._handle_processing_error(handler, event, e, event_context)
+            self._handle_processing_error(handler, event, e, event_context)
+            return e
 
     def _events_to_pool(
         self,
@@ -320,3 +345,32 @@ class ThreadOrchestrator:
                 PotentialLoopWarning,
                 stacklevel=STACKLEVEL,
             )
+
+    def _call_manager(
+        self, call_future: Future, _futures_list: list[Future], call_timeout: float
+    ):
+        results = []
+        gen_timeout = call_timeout + 1
+        start_time = time.perf_counter()
+
+        try:
+            for _future in _futures_list:
+                elapsed = time.perf_counter() - start_time
+                remaining_timeout = gen_timeout - elapsed
+
+                if remaining_timeout <= 0:
+                    raise CallTimeoutError("The call() method timed out!")
+
+                result = _future.result(remaining_timeout)
+                results.append(result)
+
+            call_future.set_result(tuple(results))
+
+        except CallTimeoutError as e:
+            call_future.set_exception(e)
+
+        except FutureTimeoutError:
+            call_future.set_exception(CallTimeoutError("The call() method timed out!"))
+
+        except Exception as e:
+            call_future.set_exception(e)

@@ -36,6 +36,10 @@ class WaitTimeoutError(QueueError):
     pass
 
 
+class CallTimeoutError(QueueError):
+    pass
+
+
 class QueueReset(QueueError):
     pass
 
