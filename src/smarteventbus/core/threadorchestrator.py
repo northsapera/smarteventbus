@@ -316,12 +316,12 @@ class ThreadOrchestrator:
     ) -> None:
         event.token.error()
 
-        handler_error_event = TyEv.BUS_ERROR(
+        handler_error_event = TyEv.BUS_ERROR(  # TODO: перевести на .model_construct()
             meta=FlatDict(source="bus", type="handler"),
             kwargs={
                 "txt": f"Ошибка через шину.\nСобытие: {event}.\nОшибка обработчика: {Handler.get_handler_name(handler)}: {type(e).__name__} - {e}",
             },
-        )
+        )  # TODO: Перенести создание ошибки внутрь pubback модуля
 
         if isinstance(e, PotentialLoop):
             warnings.warn(
@@ -348,7 +348,7 @@ class ThreadOrchestrator:
 
     def _call_manager(
         self, call_future: Future, _futures_list: list[Future], call_timeout: float
-    ):
+    ):  # TODO: Проверить количество создаваемых dedicated потоков, может быть превратить в async с 1 потоком
         results = []
         gen_timeout = call_timeout + 1
         start_time = time.perf_counter()
@@ -361,7 +361,9 @@ class ThreadOrchestrator:
                 if remaining_timeout <= 0:
                     raise CallTimeoutError("The call() method timed out!")
 
-                result = _future.result(remaining_timeout)
+                result = _future.result(
+                    remaining_timeout
+                )  # FIXME: Учесть потенциальную двойную публикацию результата
                 results.append(result)
 
             call_future.set_result(tuple(results))

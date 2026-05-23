@@ -46,7 +46,12 @@ from .core.eventclasses import Event, TyEv
 from .core.eventorchestrator import QueueOrchestrator
 from .core.eventqueue import UniquePriorityQueue
 from .core.handlerclasses import Handler
-from .core.logictypes import PubType, SubscribeType, ThreadType, UniqType
+from .core.logictypes import (  # TODO: Поменять везде с == на is
+    PubType,
+    SubscribeType,
+    ThreadType,
+    UniqType,
+)
 from .core.publishback import PubBackPool
 from .core.subscriptionorchestrator import SubscriptionOrchestrator
 from .core.threadorchestrator import ThreadOrchestrator
@@ -256,7 +261,9 @@ class EventBus:
 
         return result
 
-    def _dispatch(self):
+    def _dispatch(
+        self,
+    ):  # TODO: Перевевсти на обработку кэшированных событий и подписчиков - метаданные маршрутизации кэшируются во внутреннем словаре (not urgent)
         """Внутренний цикл обработки событий"""
         self._on_air_flag.set()
 

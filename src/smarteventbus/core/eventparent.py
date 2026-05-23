@@ -69,7 +69,7 @@ class TokenState(IntEnum):
 
 
 @dataclass
-class EventToken:
+class EventToken:  # FIXME: Добавить в девалидацию токена запись в future метода call ошибки/объекта ошибки
     _lock: Lock = field(default_factory=lambda: Lock(), init=False)
 
     _state: TokenState = field(default=TokenState.INITIALIZED, init=False)

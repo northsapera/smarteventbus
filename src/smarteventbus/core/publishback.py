@@ -70,7 +70,9 @@ class PubBackPool:
 
         self._pubback_init(error_event, ttl, history)
 
-    def pubback(self, event: Event, old_token_context: TokenContext):
+    def pubback(
+        self, event: Event, old_token_context: TokenContext
+    ):  # Сделать проверку на WAIT логику (опасно!)
         ttl: int = old_token_context["content"].get("ttl", event.pubback_ttl) - 1
         history: tuple[int, ...] = old_token_context["history"]
 

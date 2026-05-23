@@ -89,7 +89,9 @@ class Handler(BaseModel):
     _has_kwargs: bool = PrivateAttr(default=False)
     _mask_params: set[str] = PrivateAttr(default_factory=set[str])
 
-    _is_async: bool = PrivateAttr(default=False)
+    _is_async: bool = PrivateAttr(
+        default=False
+    )  # TODO: Добавить рекурсивное определение (для декораторов) и возможность ручного определения
 
     def model_post_init(self, context: Any) -> None:
         super().model_post_init(context)
