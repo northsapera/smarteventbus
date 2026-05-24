@@ -23,7 +23,8 @@ import warnings
 from concurrent.futures import Future
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from enum import Enum
-from typing import Any, Callable, Optional
+from functools import wraps
+from typing import Any, Callable, Optional, ParamSpec, TypeVar
 
 from .core.config import STACKLEVEL
 from .core.custexceptions import (
@@ -31,6 +32,8 @@ from .core.custexceptions import (
     QueueEmpty,
     QueueFull,
     QueueReset,
+    StopTimeoutError,
+    TasksCounterError,
     TypesInconsistency,
     UnknownEventDataType,
     UnknownSubscribeType,
@@ -58,6 +61,9 @@ from .core.threadorchestrator import ThreadOrchestrator
 from .utils.flatten import FlatDict
 
 # warnings.filterwarnings("ignore", category=NonValidEventWarning)
+
+P = ParamSpec("P")
+R = TypeVar("R")
 
 
 # Шина
@@ -280,26 +286,32 @@ class EventBus:
 
                 self._threadorch.iter_handlers(handlers_to_call, event)
 
-                # self._queue.task_done()
+                self._extract_and_publish_back()
+
+                self._queueorch.task_done()
 
             except QueueEmpty:
-                pass
+                self._extract_and_publish_back()
+
+                continue
 
             except QueueReset:
-                return
+                break
 
-            except Exception:
-                # self._queue.task_done()
-
+            except TasksCounterError:
                 raise
 
-            callback_events: list[Event] = self._pubback_pool.extract()
-
-            if callback_events:
-                for callback_event in callback_events:
-                    self._pubback_pool_to_queue(callback_event)
+            except Exception:
+                raise
 
         self._on_air_flag.clear()
+
+    def _extract_and_publish_back(self):
+        callback_events: list[Event] = self._pubback_pool.extract()
+
+        if callback_events:
+            for callback_event in callback_events:
+                self._pubback_pool_to_queue(callback_event)
 
     def _pubback_pool_to_queue(self, callback_event: Event):
         try:
@@ -325,8 +337,16 @@ class EventBus:
 
             self._threadorch.start()
 
-    def stop(self):
+    def stop(self, timeout: float = 10.0, force_reset: bool = False):
         """Остановка шины"""
+        timed_out = None
+
+        if not force_reset:
+            try:
+                self._queueorch.join(timeout=timeout)
+            except StopTimeoutError as e:
+                timed_out = e
+
         self._stop_flag.set()
         self._can_running_flag.set()
 
@@ -338,6 +358,9 @@ class EventBus:
 
         # Тушим пулы потоков в оркестраторе
         self._threadorch.stop()
+
+        if timed_out:
+            raise timed_out
 
     def pause(self):
         self._can_running_flag.clear()
@@ -363,6 +386,39 @@ class BusNetwork:
     """Базовый класс для всех классов с подключением к bus."""
 
     bus = bus
+
+
+# region decorators
+
+
+def subscribe_to(
+    bus: EventBus,
+    event_data: str | Event | TyEv | Enum | type[Event] | int,
+    subscribe_type: SubscribeType = SubscribeType.NAME,
+):
+    """Декоратор для оформления подписки функции. Возвращает оригинальную функцию.
+
+    Args:
+        bus (EventBus): Шина событий.
+        event_data (str | Event | TyEv | Enum | type[Event] | int): Текст сигнала | Экземпляр события | Типовое событие | Именованное событие | Номер id или порядковый номер.
+        subscribe_type (SubscribeType, optional): Тип подписки (`NAME` | `ID` | `NUMBER`). Defaults to SubscribeType.NAME.
+
+    Raises:
+        UnknownSubscribeType: Если передан неизвестный тип подписки.
+        UnknownEventDataType: Если передан неизвестный тип данных события.
+        EventError: Если у именнованного события не определено имя.
+        TypesInconsistency: Если тип подписки не соответствует возможностям переданных данных события или если в качестве хэндлера передан non-callable объект.
+    """
+
+    def decorator(handler: Callable[P, R] | Handler) -> Callable[P, R] | Handler:
+        bus.subscribe(event_data, handler)
+
+        return handler
+
+    return decorator
+
+
+# endregion decorators
 
 
 def main(txt: str):

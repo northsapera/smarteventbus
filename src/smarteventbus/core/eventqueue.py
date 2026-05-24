@@ -27,6 +27,7 @@ from .custexceptions import (
     QueueEmpty,
     QueueError,
     QueueFull,
+    TasksCounterError,
     UnknownExitType,
     UnknownSearchType,
     UnknownUniqType,
@@ -82,6 +83,7 @@ class UniquePriorityQueue:
         """Сопровождающий словарь"""
 
         self._queue_counter = itertools.count()
+        self._tasks_counter = 0
 
         self.inspection = self.Inspection()
 
@@ -117,6 +119,7 @@ class UniquePriorityQueue:
     # endregion can_put types
 
     def put(self, event: Event) -> None:
+        self._create_task()
         self.inspection.total_puts()
 
         mapping: dict = {
@@ -139,6 +142,7 @@ class UniquePriorityQueue:
             self._add_to_satellite(event)
 
         except Exception as e:
+            self.task_done()
             self._remove_from_satellite(event)
 
             self.inspection.putting_failed()
@@ -213,6 +217,7 @@ class UniquePriorityQueue:
                         stacklevel=STACKLEVEL,
                     )
 
+                self.task_done()
                 continue
 
             return event
@@ -251,6 +256,7 @@ class UniquePriorityQueue:
         """Очистка очереди."""
         self._queue.clear()
         self._clear_satellite()
+        self._tasks_counter = 0
 
     def _clear_satellite(self):
         self._satellite = self.Satellite(ids={}, ids_valid={}, names={}, nums={})
@@ -396,7 +402,7 @@ class UniquePriorityQueue:
     def qsize(self) -> int:
         return len(self._queue)
 
-    @property
+    @property  # TODO: Добавить мнформацию о тасках
     def info(self) -> dict:
         """Информация о текущем состоянии очереди. Возвращает отчет, содержащий информацию о размере очереди, количестве id групп, {количестве полученных ошибок и предупреждений}, содержании словаря-спутика {id1: {количество событий, тип, имя, метаданные, [порядковые номера]}, id2:...}.
 
@@ -457,3 +463,16 @@ class UniquePriorityQueue:
             }
 
         return report
+
+    def _create_task(self) -> None:
+        self._tasks_counter += 1
+
+    def task_done(self) -> None:
+        if self._tasks_counter > 0:
+            self._tasks_counter -= 1
+        else:
+            raise TasksCounterError("task_done called too many times!")
+
+    @property
+    def is_joined(self) -> bool:
+        return self._tasks_counter == 0

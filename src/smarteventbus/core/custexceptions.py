@@ -44,6 +44,10 @@ class QueueReset(QueueError):
     pass
 
 
+class TasksCounterError(QueueError):
+    pass
+
+
 class ThreadingsError(BusError):
     pass
 
@@ -117,4 +121,8 @@ class PotentialLoop(EventError):
 
 
 class HandlerError(BusError):
+    pass
+
+
+class StopTimeoutError(BusError):
     pass

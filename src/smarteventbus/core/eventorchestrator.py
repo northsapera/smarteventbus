@@ -23,6 +23,7 @@ from .custexceptions import (
     QueueError,
     QueueFull,
     QueueReset,
+    StopTimeoutError,
     UnknownExitType,
     WaitTimeoutError,
 )
@@ -142,6 +143,26 @@ class QueueOrchestrator:
     def reset_queue(self) -> None:
         with self._lock:
             self._reset = True
+            self._queue.clean_queue()
+
+            self._producer_condition.notify_all()
+            self._consumer_condition.notify_all()
+
+    def task_done(self) -> None:
+        with self._lock:
+            self._queue.task_done()
+
+            self._producer_condition.notify_all()
+            self._consumer_condition.notify_all()
+
+    def join(self, timeout: float = 10.0) -> None:
+        with self._lock:
+            success = self._producer_condition.wait_for(
+                lambda: self._queue.is_joined, timeout=timeout
+            )
+
+            if not success:
+                raise StopTimeoutError("Stop timeout has gone!")
 
             self._producer_condition.notify_all()
             self._consumer_condition.notify_all()
