@@ -1,5 +1,3 @@
-import time
-
 from smarteventbus import Event, Handler, bus
 
 bus.start()
@@ -16,5 +14,4 @@ bus.subscribe(hello_event, hello_handler)
 bus.publish(hello_event)
 # Hello, World!
 
-time.sleep(1)
 bus.stop()

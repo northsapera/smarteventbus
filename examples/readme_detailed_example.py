@@ -1,17 +1,16 @@
 import threading
-import time
 
 from smarteventbus import BusNetwork, Event, Handler, TyEv, UniqType, bus, debug_mode
 from smarteventbus import SubscribeType as SubType
 
-# Установка флага отладки
+# Enable debug mode
 debug_mode.set()
 
-# Запуск шины
+# Start the event bus
 bus.start()
 
 
-# Создание классов с подключением к шине (в случае необходимости публикации событий)
+# Create classes connected to the bus (needed if publishing events from within the class)
 class Logic(BusNetwork):
     def __init__(self):
         self.bus = super().bus
@@ -19,7 +18,7 @@ class Logic(BusNetwork):
     def calc(self, num1: int, num2: int, end_event: Event):
         result = num1 + num2
 
-        # Создание события (имя события, передаваемые данные, приоритет, логика уникальности)
+        # Create an event (event name, payload data, priority, uniqueness logic)
         got_result = Event(
             name="calc complete",
             kwargs={"result": result},
@@ -27,12 +26,12 @@ class Logic(BusNetwork):
             uniq_type=UniqType.WAIT,
         )
 
-        # Публикация результата
+        # Publish the result
         self.bus.publish(got_result)
         self.bus.publish(end_event)
 
     def calc_to_thread(self, num1: int, num2: int, end_event: Event):
-        """Запуск расчетов в отдельном потоке"""
+        """Run calculations in a separate thread"""
         self.calc_thread = threading.Thread(
             target=self.calc,
             kwargs={"num1": num1, "num2": num2, "end_event": end_event},
@@ -44,7 +43,7 @@ class Logic(BusNetwork):
 
 logic = Logic()
 
-""" - В основном потоке: - """
+""" - Inside the main thread: - """
 
 
 def start_print(**kwargs):
@@ -64,53 +63,52 @@ def end_calc():
     print("Calculations complete!")
 
 
-# Создание подписчиков
+# Create handlers (subscribers)
 calc_handler = Handler(func=logic.calc_to_thread, default_kwargs={"num1": 5})
 end_handler = Handler(func=end_calc)
 
-# Подписка
-# TyEv.START - типовое событие, имеет значения по умолчанию, допускает их изменение тем же образом, что и при создании нового события
+# Subscribe to events
+# TyEv.START is a built-in event type with default values; its parameters can be customized just like a regular event
 bus.subscribe(
     TyEv.START, [start_print, calc_handler]
-)  # Указание нескольких подписчиков списком гарантирует порядок их активации
+)  # Providing multiple subscribers in a list guarantees their execution order
 
-# Если подписчик - обычная функция, рекомендуется в ее аргументах указывать **kwargs, так как шина пробрасывает события "как есть" со всеми переданными и внутренними (при DEBUG_MODE) аргументами
+# If a subscriber is a standard function, it's recommended to include **kwargs in its arguments.
+# The bus passes events "as-is" with all payload and internal parameters (when debug_mode is active).
 bus.subscribe("calc complete", print_result)
 
-# Подписка по ID не принимает строку
+# Subscription by ID does not accept strings
 bus.subscribe(Event(name="calc complete"), print_txt, SubType.ID)
 
-# Подписка по NUMBER принимает конкретный объект или номер
+# Subscription by NUMBER accepts a specific event object or index/number
 end_event = TyEv.END()
 bus.subscribe(end_event, end_handler, SubType.NUMBER)
 
-# Публикация
+# Publish
 bus.publish(TyEv.START(kwargs={"num2": 3, "end_event": end_event}))
-# Активируется подписчик start_print
-# --- Вывод: Start!
+# 1. The start_print subscriber is triggered.
+# --- Output: Start!
 
-# Активируется подписчик calc_handler, благодаря default_kwargs в хэндлере не падает с ошибкой от отсутствия num1
-# Публикация события got_result ("calc complete")
-# К этому событию привязаны 2 подписчика: print_result по NAME и print_txt по ID
-# Первым активируется print_txt, так как порядок NUMBER->ID->NAME (от более точного к менее)
+# 2. The calc_handler subscriber is triggered. Thanks to default_kwargs in the Handler, it doesn't fail due to a missing num1 argument.
+# 3. The got_result ("calc complete") event is published.
+# Two subscribers are attached to this event: print_result by NAME and print_txt by ID.
+# print_txt is triggered first because the resolution priority is NUMBER -> ID -> NAME (from most specific to least specific).
 
-# Активируется подписчик print_txt, благодаря регистрации в Handler не падает от лишнего аргумента result. Благодаря файлу отладки добавляется техническая информация
-# --- Вывод: {'result': 8, '_func_name': 'calc', '_signal_name': 'calc complete'}
-# --- Вывод: No problems.
+# 4. The print_txt subscriber is triggered.
+# --- Output: {'result': 8, '_func_name': 'calc', '_signal_name': 'calc complete'}
+# --- Output: No problems.
 
-# Активируется подписчик print_result
-# --- Вывод: 8
+# 5. The print_result subscriber is triggered. Thanks to the Handler registration, it doesn't crash from the extra technical metadata arguments. Debug mode adds technical metadata.
+# --- Output: 8
 
-# Публикация события end_event
+# 6. The end_event is published.
 
-# Активируется подписчик end_handler
-# --- Вывод: Calculations complete!
+# 7. The end_handler subscriber is triggered.
+# --- Output: Calculations complete!
 
-# Небольшое ожидание, чтобы поток calc_thread успел создаться (в обычной ситуации не требуется)
-time.sleep(1)
 
-# Остановка потока расчетов
-logic.calc_thread.join()
-
-# Остановка шины
+# Stop the event bus
 bus.stop()
+
+# Stop the calculation thread
+logic.calc_thread.join()

@@ -51,7 +51,7 @@ from .logictypes import ExitType, UniqType
 
 # События
 @total_ordering
-class Event(EventParent, BaseModel):
+class Event(EventParent, BaseModel):  # TODO: Метод duble()
     """Контейнер события. Содержит идентификационные данные, полезную нагрузку, приоритет, настройки поведения в очереди. Сравнимый (по приоритету, возрасту)."""
 
     # Настройка модели

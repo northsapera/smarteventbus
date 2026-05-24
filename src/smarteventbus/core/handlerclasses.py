@@ -21,7 +21,9 @@ import warnings
 from typing import (
     Any,
     Callable,
+    ParamSpec,
     Self,
+    TypeVar,
     get_args,
     get_origin,
     get_type_hints,
@@ -38,6 +40,9 @@ from .custexceptions import HandlerError
 from .custwarnings import UnpredictableBusWarning
 from .logictypes import ThreadType
 
+P = ParamSpec("P")
+R = TypeVar("R")
+
 
 # Класс подписчиков (хэндлеров)
 class Handler(BaseModel):
@@ -45,8 +50,12 @@ class Handler(BaseModel):
 
     Args:
         func (Callable): Вызываемая функция.
-        default_kwargs (dict): Значения по умолчанию для функции, перезаписываются значениями, пришедшими извне при вызове.
-        force_kwargs (dict): Значения, подставляемые в функцию насильно, перезаписывают значения, пришедшие извне при вызове.
+        default_kwargs (dict): Значения по умолчанию для функции, перезаписываются значениями, пришедшими извне при вызове. Default to dict.
+        force_kwargs (dict): Значения, подставляемые в функцию насильно, перезаписывают значения, пришедшие извне при вызове. Default to dict.
+        strict_order (bool): Порядок вызова - строгий (обязательное ожидание циклом обработки событий завершения работы хэндлера) или нестрогий (fire-and-forget). Default to True.
+        strict_order_timeout (float): Таймаут ожидания циклом обработки событий завершения работы хэндлера. Default to 10.0.
+        context (ThreadType): Контекст обработки хэндлера (целевой поток). Default to ThreadType.POOL.
+        allow_pubback (bool): Разрешить обратную публикацию событий. Default to True.
 
     Raises:
         EventError: Если при создании подкласса переопределены типы полей.
@@ -76,13 +85,16 @@ class Handler(BaseModel):
         default=-1
     )  # TODO: Внимательно просмотреть атрибуты на предмет необходимости защитить от изменяемости
 
+    _func_name: str = PrivateAttr(default="")
+    _func_doc: str | None = PrivateAttr(default=None)
+
     func: Callable
     default_kwargs: dict = Field(default_factory=dict)
     force_kwargs: dict = Field(default_factory=dict)
 
     strict_order: bool = Field(default=True)
-    strict_order_timeout: float = Field(default=10)
-    context: str = Field(default=ThreadType.POOL)
+    strict_order_timeout: float = Field(default=10.0)
+    context: ThreadType = Field(default=ThreadType.POOL)
 
     allow_pubback: bool = Field(default=True)
 
@@ -91,7 +103,7 @@ class Handler(BaseModel):
 
     _is_async: bool = PrivateAttr(
         default=False
-    )  # TODO: Добавить рекурсивное определение (для декораторов) и возможность ручного определения
+    )  # TODO: Добавить рекурсивное определение (для декораторов) и возможность ручного определения. Добавлено - unwrap, требуется - ручное определение
 
     def model_post_init(self, context: Any) -> None:
         super().model_post_init(context)
@@ -118,7 +130,7 @@ class Handler(BaseModel):
         if not self._has_kwargs:
             self._mask_params = params.keys() - exclude_params
 
-        self._is_async = inspect.iscoroutinefunction(self.func)
+        self._is_async = inspect.iscoroutinefunction(inspect.unwrap(self.func))
 
     def __call__(self, *args, **kwargs) -> Any:
         if self._has_kwargs:
@@ -131,6 +143,10 @@ class Handler(BaseModel):
         target_kwargs = {**self.default_kwargs, **matching_kwargs, **self.force_kwargs}
 
         return self._run(*args, **target_kwargs)
+
+    def _decorator_record(self, _func_name: str, _func_doc: str | None):
+        self._func_name = _func_name
+        self._func_doc = _func_doc
 
     def _run(self, *args, **kwargs) -> Any:
         if self._is_async:
@@ -320,3 +336,45 @@ class Handler(BaseModel):
         if not isinstance(other, Handler):
             return False
         return self._id == other._id
+
+
+def register(
+    default_kwargs: dict | None = None,
+    force_kwargs: dict | None = None,
+    strict_order: bool = False,
+    strict_order_timeout: float = 10.0,
+    context: ThreadType = ThreadType.POOL,
+    allow_pubback: bool = True,
+):
+    """Декоратор. Регистрирует функцию как объект Handler. Принимает все настройки Handler.
+
+    Args:
+        default_kwargs (dict | None, optional): Значения по умолчанию для функции, перезаписываются значениями, пришедшими извне при вызове. Defaults to None.
+        force_kwargs (dict | None, optional): Значения, подставляемые в функцию насильно, перезаписывают значения, пришедшие извне при вызове. Defaults to None.
+        strict_order (bool, optional): Порядок вызова - строгий (обязательное ожидание циклом обработки событий завершения работы хэндлера) или нестрогий (fire-and-forget). Defaults to False.
+        strict_order_timeout (float, optional): Таймаут ожидания циклом обработки событий завершения работы хэндлера. Defaults to 10.0.
+        context (ThreadType, optional): Контекст обработки хэндлера (целевой поток). Defaults to ThreadType.POOL.
+        allow_pubback (bool, optional): Разрешить обратную публикацию событий. Defaults to True.
+
+    Returns:
+        Handler: объект Handler.
+    """
+    default_kwargs = {} if default_kwargs is None else default_kwargs
+    force_kwargs = {} if force_kwargs is None else force_kwargs
+
+    def decorator(func: Callable[P, R]) -> Callable[P, R] | Handler:
+        handler = Handler(
+            func=func,
+            default_kwargs=default_kwargs,
+            force_kwargs=force_kwargs,
+            strict_order=strict_order,
+            strict_order_timeout=strict_order_timeout,
+            context=context,
+            allow_pubback=allow_pubback,
+        )
+
+        handler._decorator_record(_func_name=func.__name__, _func_doc=func.__doc__)
+
+        return handler
+
+    return decorator

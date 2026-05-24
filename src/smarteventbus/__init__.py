@@ -16,7 +16,7 @@
 Smart Event Bus: A thread-safe event bus library for Python.
 """
 
-__version__ = "0.13.0"
+__version__ = "0.14.0"
 __author__ = "Matvey Grigoryev"
 
 from .core.config import debug_mode
@@ -36,6 +36,8 @@ from .core.custexceptions import (
     QueueFull,
     QueueReset,
     RePublishing,
+    StopTimeoutError,
+    TasksCounterError,
     ThreadingsError,
     TypesInconsistency,
     UnknownEventDataType,
@@ -64,7 +66,7 @@ from .core.custwarnings import (
     WaitTimeoutWarning,
 )
 from .core.eventclasses import Event, TyEv
-from .core.handlerclasses import Handler
+from .core.handlerclasses import Handler, register
 from .core.logictypes import (
     ExitType,
     PubType,
@@ -73,7 +75,7 @@ from .core.logictypes import (
     ThreadType,
     UniqType,
 )
-from .eventbus import BusNetwork, EventBus, bus
+from .eventbus import BusNetwork, EventBus, bus, subscribe_to
 from .utils.flatten import FlatDict, check_flat
 
 # Определяем, что будет доступно при "from smarteventbus import *"
@@ -84,6 +86,8 @@ __all__ = [
     "bus",
     "Event",
     "Handler",
+    "register",
+    "subscribe_to",
     "TyEv",
     "debug_mode",
     # Logic types
@@ -112,6 +116,8 @@ __all__ = [
     "QueueFull",
     "QueueReset",
     "RePublishing",
+    "StopTimeoutError",
+    "TasksCounterError",
     "ThreadingsError",
     "TypesInconsistency",
     "UnknownEventDataType",
