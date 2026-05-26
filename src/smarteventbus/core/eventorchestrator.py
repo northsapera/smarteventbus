@@ -72,18 +72,13 @@ class QueueOrchestrator:
                 return
 
             if not success:
-                if self.maxsize > 0 and self._queue.qsize >= self.maxsize:
+                if (self.maxsize > 0 and self._queue.qsize >= self.maxsize) or _no_wait:
                     raise QueueFull(
                         f"The event '{event.name}' was rejected by full queue!"
                     )
 
                 if event.wait_timeout_exit == ExitType.REJECT:
                     self._queue.inspection.wait_errors_amount()
-                    if _no_wait:
-                        raise QueueFull(
-                            f"The event '{event.name}' was rejected by full queue!"
-                        )
-
                     raise WaitTimeoutError(
                         f"The WAIT logic event '{event.name}' was rejected by timeout ({timeout})!"
                     )
