@@ -14,11 +14,11 @@
 
 """Logic types: Enum lists."""
 
-from enum import Enum
+from enum import Enum, IntEnum, StrEnum
 
 
 # Enum-классы списков возможных значений
-class UniqType(str, Enum):
+class UniqType(StrEnum):
     """Виды логики уникальности"""
 
     NONE = "NONE"
@@ -26,14 +26,14 @@ class UniqType(str, Enum):
     REPLACE = "REPLACE"
 
 
-class ExitType(str, Enum):
+class ExitType(StrEnum):
     """Виды логики выхода из ожидания"""
 
     REJECT = "REJECT"
     PUT = "PUT"
 
 
-class SearchType(str, Enum):
+class SearchType(StrEnum):
     """Виды логики поиска события в очереди."""
 
     NAME = "NAME"
@@ -44,7 +44,7 @@ class SearchType(str, Enum):
     """Поиск единичного события по уникальному порядковому номеру."""
 
 
-class PubType(str, Enum):
+class PubType(StrEnum):
     """Виды логики публикации событий"""
 
     NONE = "NONE"
@@ -59,7 +59,7 @@ class PubType(str, Enum):
     """Обратная публикация события"""
 
 
-class SubscribeType(str, Enum):
+class SubscribeType(StrEnum):
     """Виды логики подписки."""
 
     NUMBER = "NUMBER"
@@ -70,10 +70,15 @@ class SubscribeType(str, Enum):
     """Подписка на имя события (сигнал)."""
 
 
-class ThreadType(str, Enum):
+class ThreadType(StrEnum):
     """Виды пулов потоков"""
 
     POOL = "pool"
     """Общий поток"""
     DEDICATED = "dedicated"
     """Выделенный поток"""
+
+    INTERNAL_PUBLICATIONS = "_publications"
+    """Внутренний тип для выделения потоков под асинхронные неблокирующие методы публикации"""
+    INTERNAL_CALL_MANAGERS = "_call_managers"
+    """Внутренний тип для выделения потоков под call-менеджер"""
