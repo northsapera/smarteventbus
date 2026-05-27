@@ -5,6 +5,6 @@ authors:
     given-names: "Matvey Aleksandrovich"
     orcid: "https://orcid.org/0009-0007-3364-6077"
 title: "Smart Event Bus: Event bus with integrated Event Manager"
-version: 0.14.0
-date-released: 2026-05-24
+version: 0.15.0
+date-released: 2026-05-28
 url: "https://github.com/northsapera/smarteventbus"

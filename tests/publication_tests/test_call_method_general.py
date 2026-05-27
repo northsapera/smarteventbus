@@ -119,7 +119,7 @@ class TestEventBusCallManager(unittest.TestCase):
         bus.subscribe("calling", responser_str)
 
         with self.assertRaises(CallTimeoutError):
-            response = bus.call(Event(name="calling"), 0)
+            response = bus.call(Event(name="calling", timeout=0))
 
         bus.stop()
 

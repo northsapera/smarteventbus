@@ -16,7 +16,7 @@
 Smart Event Bus: A thread-safe event bus library for Python.
 """
 
-__version__ = "0.14.0"
+__version__ = "0.15.0"
 __author__ = "Matvey Grigoryev"
 
 from .core.config import debug_mode

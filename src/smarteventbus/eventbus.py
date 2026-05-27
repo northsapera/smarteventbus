@@ -15,12 +15,13 @@
 
 """The main dispatcher (conductor), ensuring the interaction of all elements of the system. Main bus."""
 
+import asyncio
 import inspect
 import queue
 import threading
 import time
 import warnings
-from concurrent.futures import Future
+from concurrent.futures import Future, ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from enum import Enum
 from functools import wraps
@@ -28,6 +29,7 @@ from typing import Any, Callable, Optional, ParamSpec, TypeVar
 
 from .core.config import STACKLEVEL
 from .core.custexceptions import (
+    BusError,
     CallTimeoutError,
     QueueEmpty,
     QueueFull,
@@ -37,6 +39,7 @@ from .core.custexceptions import (
     TypesInconsistency,
     UnknownEventDataType,
     UnknownSubscribeType,
+    WaitTimeoutError,
 )
 from .core.custwarnings import (
     HandlerWarning,
@@ -196,6 +199,7 @@ class EventBus:
         """
         self._suborch.subscribe(event_data, handlers, subscribe_type)
 
+    # region Публикация
     def publish(self, event: Event):
         """Публикует событие в шину.
 
@@ -248,25 +252,116 @@ class EventBus:
         event.token.write_content(
             type=PubType.PUBLISH, content=FlatDict(), history=(0, event.id)
         )
-        self._queueorch.put(event, event.timeout, event.block)
 
-    def call(self, event: Event, timeout: float = 10):
+        self._core_put(event, event.timeout, event.block)
+
+    async def async_publish(self, event: Event):
+        event.token.write_content(
+            type=PubType.PUBLISH, content=FlatDict(), history=(0, event.id)
+        )
+
+        try:
+            self._queueorch.put_no_wait(event)
+
+        except QueueFull:
+            pub_executor = self._threadorch._get_executor_for_context(
+                ThreadType.INTERNAL_PUBLICATIONS,
+                is_async=False,
+            )
+
+            if not isinstance(pub_executor, ThreadPoolExecutor):
+                raise BusError("Executor for async pub must be the ThreadPoolExecutor!")
+
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(
+                pub_executor, self._core_put, event, event.timeout, event.block
+            )
+
+    def call(self, event: Event):
         future = Future()
+
+        start_time = time.perf_counter()
+        timeout = event.timeout
 
         event.token.write_content(
             type=PubType.CALL,
             content=FlatDict(future=future, timeout=timeout),
             history=(1, event.id),
         )
-        self._queueorch.put(event, event.timeout, event.block)
+
+        self._core_put(event, event.timeout, event.block)
+
+        second_half_time = time.perf_counter()
+        remaining_timeout = (
+            (timeout - (second_half_time - start_time)) if timeout is not None else None
+        )
+
+        if remaining_timeout is not None and remaining_timeout < 0:
+            raise CallTimeoutError("The call() method timed out!")
 
         try:
-            result = future.result(timeout=timeout)
-        except FutureTimeoutError:
+            result = future.result(timeout=remaining_timeout)
+        except (FutureTimeoutError, TimeoutError):
             raise CallTimeoutError("The call() method timed out!")
 
         return result
 
+    async def async_call(self, event: Event):
+        sync_future = Future()
+        loop = asyncio.get_running_loop()
+        async_future = asyncio.wrap_future(sync_future)
+
+        start_time = time.perf_counter()
+        timeout = event.timeout
+
+        event.token.write_content(
+            type=PubType.CALL,
+            content=FlatDict(future=sync_future, timeout=timeout),
+            history=(1, event.id),
+        )
+
+        try:
+            self._queueorch.put_no_wait(event)
+
+        except QueueFull:
+            pub_executor = self._threadorch._get_executor_for_context(
+                ThreadType.INTERNAL_PUBLICATIONS,
+                is_async=False,
+            )
+
+            if not isinstance(pub_executor, ThreadPoolExecutor):
+                raise BusError("Executor for async pub must be the ThreadPoolExecutor!")
+
+            await loop.run_in_executor(
+                pub_executor, self._core_put, event, event.timeout, event.block
+            )
+
+        second_half_time = time.perf_counter()
+        remaining_timeout = (
+            (timeout - (second_half_time - start_time)) if timeout is not None else None
+        )
+
+        if remaining_timeout is not None and remaining_timeout < 0:
+            raise CallTimeoutError("The call() method timed out!")
+
+        try:
+            result = await asyncio.wait_for(async_future, timeout=remaining_timeout)
+        except (FutureTimeoutError, asyncio.TimeoutError):
+            raise CallTimeoutError("The call() method timed out!")
+
+        return result
+
+    def _core_put(
+        self,
+        event: Event,
+        event_timeout: None | float = None,
+        block: bool = True,
+    ):
+        self._queueorch.put(event, event_timeout, block)
+
+    # endregion Публикация
+
+    # region Обработка событий
     def _dispatch(
         self,
     ):  # TODO: Перевевсти на обработку кэшированных событий и подписчиков - метаданные маршрутизации кэшируются во внутреннем словаре (not urgent)
@@ -324,6 +419,9 @@ class EventBus:
                 stacklevel=STACKLEVEL,
             )
 
+    # endregion Обработка событий
+
+    # region Управляющие команды
     def clean_queue(self, *args, **kwargs):
         self._queueorch.clean_queue()
 
@@ -376,6 +474,8 @@ class EventBus:
         }
 
         return report
+
+    # endregion Управляющие команды
 
 
 bus = EventBus()

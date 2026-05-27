@@ -109,6 +109,10 @@ class ThreadOrchestrator:
         dedicated: dict[Any, ThreadPoolExecutor | AsyncLoopExecutor] = field(
             default_factory=lambda: {}
         )
+        _publications: Optional[ThreadPoolExecutor] = field(default=None)
+        _call_managers: Optional[ThreadPoolExecutor | AsyncLoopExecutor] = field(
+            default=None
+        )
 
     # endregion dataclasses
 
@@ -135,6 +139,10 @@ class ThreadOrchestrator:
             thread_name_prefix="BusSharedAsyncPool"
         )
 
+        self._sync_executors._publications = ThreadPoolExecutor(
+            max_workers=None, thread_name_prefix="_PublicationsPool"
+        )
+
     def stop(self):
         for storage in self._exec_storages:
             if storage.shared:
@@ -147,7 +155,10 @@ class ThreadOrchestrator:
                 storage.dedicated.clear()
 
     def _get_executor_for_context(
-        self, context: str = "pool", is_async: bool = False, handler: Any = None
+        self,
+        context: ThreadType = ThreadType.POOL,
+        is_async: bool = False,
+        handler: Any = None,
     ) -> ThreadPoolExecutor | AsyncLoopExecutor:
         """
         Фабричный метод, возвращающий нужный экзекутор на основе политик хэндлера.
@@ -163,16 +174,20 @@ class ThreadOrchestrator:
             )
 
     def _choose_pool(
-        self, context: str, handler: Any, storage: ExecutorStorage, exec_class: type
+        self,
+        context: ThreadType,
+        handler: Any,
+        storage: ExecutorStorage,
+        exec_class: type,
     ) -> Any:
-        if context == ThreadType.POOL:
+        if context is ThreadType.POOL:
             if not storage.shared:
                 raise ExecutorInitError(
-                    f"Executor 'pool' in {storage} is not initialized!"
+                    f"Executor {context} in {storage} is not initialized!"
                 )
             return storage.shared
 
-        elif context == ThreadType.DEDICATED:
+        elif context is ThreadType.DEDICATED:
             with self._lock:
                 if handler not in storage.dedicated:
                     storage.dedicated[handler] = exec_class(
@@ -180,6 +195,13 @@ class ThreadOrchestrator:
                         thread_name_prefix=f"Dedicated-{Handler.get_handler_name(handler)}",
                     )
                 return storage.dedicated[handler]
+
+        elif context is ThreadType.INTERNAL_PUBLICATIONS:
+            if not storage._publications:
+                raise ExecutorInitError(
+                    f"Executor {context} in {storage} is not initialized!"
+                )
+            return storage._publications
 
         else:
             raise UnknownExecutorConfig(f"Unknown execution context: {context}")
@@ -236,7 +258,7 @@ class ThreadOrchestrator:
         # Если тип публикации - call, все фьючеры собираются в один список и отправляются в менеджер, который в отдельном потоке дождется завершения всех и отправит в переданный фьючер паблишера
         if pub_type == PubType.CALL:
             call_future: Future | None = event_context["content"].get("future", None)
-            call_timeout: float = event_context["content"].get("timeout", 10)
+            call_timeout: float | None = event_context["content"].get("timeout", 10)
 
             if call_future:
                 call_executor = self._get_executor_for_context(
@@ -347,10 +369,13 @@ class ThreadOrchestrator:
             )
 
     def _call_manager(
-        self, call_future: Future, _futures_list: list[Future], call_timeout: float
+        self,
+        call_future: Future,
+        _futures_list: list[Future],
+        call_timeout: float | None,
     ):  # TODO: Проверить количество создаваемых dedicated потоков, может быть превратить в async с 1 потоком
         results = []
-        gen_timeout = call_timeout + 1
+        gen_timeout = call_timeout if call_timeout is not None else 0 + 1
         start_time = time.perf_counter()
 
         try:
@@ -358,7 +383,7 @@ class ThreadOrchestrator:
                 elapsed = time.perf_counter() - start_time
                 remaining_timeout = gen_timeout - elapsed
 
-                if remaining_timeout <= 0:
+                if remaining_timeout <= 0 and call_timeout is not None:
                     raise CallTimeoutError("The call() method timed out!")
 
                 result = _future.result(
